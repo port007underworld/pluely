@@ -4,6 +4,9 @@ import { useGlobalShortcuts } from "@/hooks";
 import { MAX_FILES, STORAGE_KEYS } from "@/config";
 import { useApp } from "@/contexts";
 import {
+  emitShortcutPipelineMetrics,
+  estimateBase64Bytes,
+  estimateUtf8Bytes,
   fetchAIResponse,
   saveConversation,
   getConversationById,
@@ -51,6 +54,14 @@ interface CompletionState {
   attachedFiles: AttachedFile[];
   currentConversationId: string | null;
   conversationHistory: ChatMessage[];
+}
+
+interface ShortcutRequestContext {
+  triggerStartedAt: number;
+  triggerSource: "fullscreen" | "selection";
+  screenshotCaptureMs?: number;
+  audioFetchMs?: number;
+  customPromptUsed?: boolean;
 }
 
 export const useCompletion = () => {
@@ -585,7 +596,13 @@ export const useCompletion = () => {
   };
 
   const handleScreenshotSubmit = useCallback(
-    async (base64: string, prompt?: string, audioBase64?: string | undefined, audioTranscription?: string | null) => {
+    async (
+      base64: string,
+      prompt?: string,
+      audioBase64?: string | undefined,
+      audioTranscription?: string | null,
+      requestContext?: ShortcutRequestContext
+    ) => {
       if (state.attachedFiles.length >= MAX_FILES) {
         setState((prev) => ({
           ...prev,
@@ -620,6 +637,9 @@ export const useCompletion = () => {
           // Generate unique request ID
           const requestId = generateRequestId();
           currentRequestIdRef.current = requestId;
+          const requestStartedAt = performance.now();
+          let firstChunkAt: number | null = null;
+          let promptForRequest = prompt;
 
           // Cancel any existing request
           if (abortControllerRef.current) {
@@ -669,7 +689,6 @@ export const useCompletion = () => {
             }));
 
             // If we have audio transcription from the attached audio, append it to the prompt
-            let promptForRequest = prompt;
             if (audioTranscription && audioTranscription.trim()) {
               promptForRequest = `${prompt}\n\n[Attached audio transcription]: ${audioTranscription}`;
             }
@@ -684,6 +703,10 @@ export const useCompletion = () => {
               imagesBase64: [base64],
               audioBase64: audioBase64,
             })) {
+              if (firstChunkAt === null && chunk) {
+                firstChunkAt = performance.now();
+              }
+
               // Only update if this is still the current request
               if (currentRequestIdRef.current !== requestId || signal.aborted) {
                 return; // Request was superseded or cancelled
@@ -727,6 +750,34 @@ export const useCompletion = () => {
               }));
             }
           } finally {
+            const completedAt = performance.now();
+            const imagePayloadBytes = estimateBase64Bytes(base64);
+            const audioPayloadBytes = estimateBase64Bytes(audioBase64 || "");
+            const textPayloadBytes = estimateUtf8Bytes(promptForRequest || "");
+            const totalPayloadBytes =
+              imagePayloadBytes + audioPayloadBytes + textPayloadBytes;
+
+            await emitShortcutPipelineMetrics({
+              requestId,
+              triggerSource: requestContext?.triggerSource ?? "fullscreen",
+              customPromptUsed:
+                requestContext?.customPromptUsed ??
+                prompt.trim() !== screenshotConfigRef.current.autoPrompt.trim(),
+              screenshotCaptureMs: requestContext?.screenshotCaptureMs,
+              audioFetchMs: requestContext?.audioFetchMs,
+              timeToFirstChunkMs:
+                firstChunkAt === null ? undefined : firstChunkAt - requestStartedAt,
+              requestRoundTripMs: completedAt - requestStartedAt,
+              totalPipelineMs:
+                completedAt -
+                (requestContext?.triggerStartedAt ?? requestStartedAt),
+              imagePayloadBytes,
+              audioPayloadBytes,
+              textPayloadBytes,
+              totalPayloadBytes,
+              hadAudio: Boolean(audioBase64),
+            });
+
             // Only update loading state if this is still the current request
             if (currentRequestIdRef.current === requestId && !signal.aborted) {
               setState((prev) => ({ ...prev, isLoading: false }));
@@ -909,6 +960,7 @@ export const useCompletion = () => {
     if (!handleScreenshotSubmit) return;
 
     const config = screenshotConfigRef.current;
+    const triggerStartedAt = performance.now();
     screenshotInitiatedByThisContext.current = true;
     setIsScreenshotLoading(true);
 
@@ -947,17 +999,22 @@ export const useCompletion = () => {
       }
 
       if (config.enabled) {
+        const screenshotCaptureStart = performance.now();
         const base64 = await invoke("capture_to_base64", {
           compressionEnabled: config.compressionEnabled ?? true,
           compressionQuality: config.compressionQuality ?? 75,
           compressionMaxDimension: config.compressionMaxDimension ?? 1600,
         });
+        const screenshotCaptureMs = performance.now() - screenshotCaptureStart;
 
         // Grab system audio if daemon is on
         let audioBase64: string | undefined;
+        let audioFetchMs: number | undefined;
         if (systemAudioDaemonConfig.enabled) {
           try {
+            const audioFetchStart = performance.now();
             audioBase64 = await invoke<string>("system_audio_get_recent_base64");
+            audioFetchMs = performance.now() - audioFetchStart;
           } catch (e) {
             console.warn("Could not get system audio:", e);
           }
@@ -965,7 +1022,19 @@ export const useCompletion = () => {
 
         if (config.mode === "auto") {
           // Auto mode: Submit directly to AI with the configured prompt
-          await handleScreenshotSubmit(base64 as string, config.autoPrompt, audioBase64);
+          await handleScreenshotSubmit(
+            base64 as string,
+            config.autoPrompt,
+            audioBase64,
+            undefined,
+            {
+              triggerStartedAt,
+              triggerSource: "fullscreen",
+              screenshotCaptureMs,
+              audioFetchMs,
+              customPromptUsed: false,
+            }
+          );
         } else if (config.mode === "manual") {
           // Manual mode: Add to attached files without prompt
           await handleScreenshotSubmit(base64 as string, undefined, audioBase64);
@@ -1006,13 +1075,17 @@ export const useCompletion = () => {
         isProcessingScreenshotRef.current = true;
         const base64 = event.payload;
         const config = screenshotConfigRef.current;
+        const triggerStartedAt = performance.now();
 
         try {
           // Grab system audio if daemon is on
           let audioBase64: string | undefined;
+          let audioFetchMs: number | undefined;
           if (systemAudioDaemonConfig.enabled) {
             try {
+              const audioFetchStart = performance.now();
               audioBase64 = await invoke<string>("system_audio_get_recent_base64");
+              audioFetchMs = performance.now() - audioFetchStart;
             } catch (e) {
               console.warn("Could not get system audio:", e);
             }
@@ -1020,7 +1093,18 @@ export const useCompletion = () => {
 
           if (config.mode === "auto") {
             // Auto mode: Submit directly to AI with the configured prompt
-            await handleScreenshotSubmit(base64 as string, config.autoPrompt, audioBase64);
+            await handleScreenshotSubmit(
+              base64 as string,
+              config.autoPrompt,
+              audioBase64,
+              undefined,
+              {
+                triggerStartedAt,
+                triggerSource: "selection",
+                audioFetchMs,
+                customPromptUsed: false,
+              }
+            );
           } else if (config.mode === "manual") {
             // Manual mode: Add to attached files without prompt
             await handleScreenshotSubmit(base64 as string, undefined, audioBase64);

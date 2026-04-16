@@ -1,11 +1,12 @@
 import { useRef } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Button, ScrollArea } from "@/components";
-import { PaperclipIcon, XIcon, PlusIcon, TrashIcon, MusicIcon } from "lucide-react"; // Added MusicIcon
+import { PaperclipIcon, XIcon, PlusIcon, TrashIcon, MusicIcon, DownloadIcon } from "lucide-react";
 import { UseCompletionReturn } from "@/types";
 import { MAX_FILES } from "@/config";
 
@@ -22,6 +23,21 @@ export const Files = ({
 
   const handleAddMoreClick = () => {
     fileInputRef.current?.click();
+  };
+
+  const handleSaveAudio = async (file: any) => {
+    if (!file?.base64) {
+      return;
+    }
+
+    try {
+      await invoke("system_audio_save_ogg_base64", {
+        base64Data: file.base64,
+        suggestedFilename: file.name || `system_audio_${Date.now()}.ogg`,
+      });
+    } catch (error) {
+      console.error("Failed to save audio file:", error);
+    }
   };
 
   const canAddMore = attachedFiles.length < MAX_FILES;
@@ -112,6 +128,18 @@ export const Files = ({
                         </div>
                       </div>
                       
+                      {isAudio && (
+                        <Button
+                          size="icon"
+                          variant="secondary"
+                          className="absolute top-2 left-2 h-6 w-6 cursor-pointer opacity-100"
+                          onClick={() => handleSaveAudio(file)}
+                          title="Save audio"
+                        >
+                          <DownloadIcon className="h-3 w-3" />
+                        </Button>
+                      )}
+
                       <Button
                         size="icon"
                         variant="destructive"

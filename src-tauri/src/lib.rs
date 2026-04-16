@@ -103,6 +103,7 @@ pub fn run() {
             system_audio::system_audio_start,
             system_audio::system_audio_stop,
             system_audio::system_audio_get_recent_base64,
+            system_audio::system_audio_save_ogg_base64,
             system_audio::system_audio_is_recording,
             system_audio::system_audio_status,
             api::transcribe_audio,
@@ -122,19 +123,6 @@ pub fn run() {
             if app_handle.get_webview_window("dashboard").is_none() {
                 if let Err(e) = window::create_dashboard_window(&app_handle) {
                     eprintln!("Failed to pre-create dashboard window on startup: {}", e);
-                }
-            }
-
-            #[cfg(desktop)]
-            {
-                use tauri_plugin_autostart::MacosLauncher;
-
-                #[allow(deprecated, unexpected_cfgs)]
-                if let Err(e) = app.handle().plugin(tauri_plugin_autostart::init(
-                    MacosLauncher::LaunchAgent,
-                    Some(vec![]),
-                )) {
-                    eprintln!("Failed to initialize autostart plugin: {}", e);
                 }
             }
 

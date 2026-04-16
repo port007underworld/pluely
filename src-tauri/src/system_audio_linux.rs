@@ -2,7 +2,7 @@
 //! Captures the monitor of the default audio sink (system audio output).
 //! Requires PipeWire to be running (default on Ubuntu 24+, Fedora 34+, etc.).
 
-use crate::system_audio::SystemAudioState;
+use crate::system_audio::{AudioConverter, SystemAudioState};
 use std::rc::Rc;
 use std::sync::{Arc, Mutex as StdMutex};
 use std::thread;
@@ -14,6 +14,11 @@ use pw::spa;
 struct CaptureHandle {
     quit_tx: pw::channel::Sender<()>,
     thread: Option<thread::JoinHandle<()>>,
+}
+
+struct UserData {
+    format: spa::param::audio::AudioInfoRaw,
+    converter: AudioConverter,
 }
 
 static CAPTURE_STATE: StdMutex<Option<CaptureHandle>> = StdMutex::new(None);
@@ -101,14 +106,11 @@ fn run_pipewire_capture(
     .map_err(|e| format!("Failed to create PipeWire Stream: {}", e))?;
 
     // -----------------------------------------------------------------------
-    // Build audio format Pod: F32LE, 48 kHz, stereo
-    // This matches the macOS capture spec so the shared ring buffer and
-    // Opus/OGG encoding pipeline works identically.
+    // Build audio format Pod: F32LE only.
+    // Leaving rate/channels unset lets PipeWire negotiate native graph format.
     // -----------------------------------------------------------------------
     let mut audio_info = spa::param::audio::AudioInfoRaw::new();
     audio_info.set_format(spa::param::audio::AudioFormat::F32LE);
-    audio_info.set_rate(48000);
-    audio_info.set_channels(2);
 
     let values: Vec<u8> = spa::pod::serialize::PodSerializer::serialize(
         std::io::Cursor::new(Vec::new()),
@@ -126,12 +128,46 @@ fn run_pipewire_capture(
         .ok_or_else(|| "Failed to create Pod from serialized bytes".to_string())?;
 
     // -----------------------------------------------------------------------
-    // Register process callback – reads audio data from PipeWire buffers
-    // and pushes interleaved F32 samples into the shared ring buffer.
+    // Register callbacks: parse negotiated native format, then convert each
+    // process buffer into 16 kHz mono before pushing to the shared ring buffer.
     // -----------------------------------------------------------------------
+    let user_data = UserData {
+        format: spa::param::audio::AudioInfoRaw::new(),
+        converter: AudioConverter::new(48000, 2),
+    };
+
     let _listener = stream
-        .add_local_listener_with_user_data(state)
-        .process(|stream, state| {
+        .add_local_listener_with_user_data(user_data)
+        .param_changed(|_, user_data, id, param| {
+            let Some(param) = param else {
+                return;
+            };
+            if id != pw::spa::param::ParamType::Format.as_raw() {
+                return;
+            }
+
+            let Ok((media_type, media_subtype)) = pw::spa::param::format_utils::parse_format(param)
+            else {
+                return;
+            };
+            if media_type != pw::spa::param::format::MediaType::Audio
+                || media_subtype != pw::spa::param::format::MediaSubtype::Raw
+            {
+                return;
+            }
+
+            if user_data.format.parse(param).is_ok() {
+                let rate = user_data.format.rate().max(1);
+                let channels = user_data.format.channels().max(1) as u16;
+                user_data.converter.reconfigure(rate, channels);
+                tracing::info!(
+                    "PipeWire negotiated format: {} Hz, {} ch",
+                    rate,
+                    channels
+                );
+            }
+        })
+        .process(move |stream, user_data| {
             match stream.dequeue_buffer() {
                 None => { /* no buffer available this cycle */ }
                 Some(mut buffer) => {
@@ -157,7 +193,10 @@ fn run_pipewire_capture(
                                         n_samples,
                                     )
                                 };
-                                state.push_samples_realtime(samples);
+                                let converted = user_data.converter.convert_interleaved(samples);
+                                if !converted.is_empty() {
+                                    state.push_samples_realtime(&converted);
+                                }
                             }
                         }
                     }

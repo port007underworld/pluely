@@ -13,9 +13,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
-pub(crate) const SAMPLE_RATE: u32 = 48000;
-pub(crate) const CHANNELS: u16 = 2;
-
 /// Output sample rate for Opus encoding (speech-optimized).
 const OUTPUT_SAMPLE_RATE: u32 = 16000;
 /// Output is mono.
@@ -26,10 +23,9 @@ const MAX_BUFFER_SECONDS: u32 = 300;
 
 /// Shared state for the system audio ring buffer and daemon control.
 pub struct SystemAudioState {
-    /// Ring buffer: physical capacity = MAX_BUFFER_SECONDS * SAMPLE_RATE * CHANNELS.
-    /// Logical length (samples to return) = buffer_seconds * SAMPLE_RATE * CHANNELS, set on start.
-    buffer: Mutex<Vec<f32>>,
-    write_index: Mutex<usize>,
+    /// Ring buffer: physical capacity = MAX_BUFFER_SECONDS * OUTPUT_SAMPLE_RATE * OUTPUT_CHANNELS.
+    /// Logical length (samples to return) = buffer_seconds * OUTPUT_SAMPLE_RATE * OUTPUT_CHANNELS.
+    ring: Mutex<(Vec<f32>, usize)>,
     capacity: usize,
     /// Number of samples to return in get_recent (logical_seconds * rate * ch).
     logical_len: Mutex<usize>,
@@ -43,17 +39,16 @@ pub struct SystemAudioState {
 impl SystemAudioState {
     pub fn new() -> Self {
         let capacity = (MAX_BUFFER_SECONDS as usize)
-            .saturating_mul(SAMPLE_RATE as usize)
-            .saturating_mul(CHANNELS as usize);
+            .saturating_mul(OUTPUT_SAMPLE_RATE as usize)
+            .saturating_mul(OUTPUT_CHANNELS as usize);
         let capacity = capacity.max(1);
         let default_seconds = 30u32;
         let logical_len = (default_seconds as usize)
-            .saturating_mul(SAMPLE_RATE as usize)
-            .saturating_mul(CHANNELS as usize)
+            .saturating_mul(OUTPUT_SAMPLE_RATE as usize)
+            .saturating_mul(OUTPUT_CHANNELS as usize)
             .min(capacity);
         Self {
-            buffer: Mutex::new(vec![0.0; capacity]),
-            write_index: Mutex::new(0),
+            ring: Mutex::new((vec![0.0; capacity], 0)),
             capacity,
             logical_len: Mutex::new(logical_len),
             recording: AtomicBool::new(false),
@@ -64,8 +59,8 @@ impl SystemAudioState {
     /// Set logical buffer length (samples to keep/return) for next start. Call before start.
     pub fn set_buffer_seconds(&self, buffer_seconds: u32) {
         let len = (buffer_seconds as usize)
-            .saturating_mul(SAMPLE_RATE as usize)
-            .saturating_mul(CHANNELS as usize)
+            .saturating_mul(OUTPUT_SAMPLE_RATE as usize)
+            .saturating_mul(OUTPUT_CHANNELS as usize)
             .min(self.capacity)
             .max(1);
         if let Ok(mut l) = self.logical_len.lock() {
@@ -84,27 +79,7 @@ impl SystemAudioState {
         }
     }
 
-    /// Push a single f32 sample (interleaved L/R). Called from capture thread.
-    pub fn push_sample(&self, sample: f32) {
-        if !self.recording.load(Ordering::SeqCst) {
-            return;
-        }
-        if let Ok(mut buf) = self.buffer.lock() {
-            if let Ok(mut idx) = self.write_index.lock() {
-                buf[*idx] = sample;
-                *idx = (*idx + 1) % self.capacity;
-            }
-        }
-    }
-
-    /// Push a chunk of interleaved f32 samples.
-    pub fn push_samples(&self, samples: &[f32]) {
-        for &s in samples {
-            self.push_sample(s);
-        }
-    }
-
-    /// Push samples from a real-time audio thread. Uses try_lock to avoid
+    /// Push 16 kHz mono samples from a real-time audio thread. Uses try_lock to avoid
     /// blocking the audio IO thread. Drops samples if the mutex is held
     /// (e.g. during get_recent_base64), which is acceptable for a background
     /// audio capture ring buffer.
@@ -112,53 +87,73 @@ impl SystemAudioState {
         if !self.recording.load(Ordering::Relaxed) {
             return;
         }
-        if let Ok(mut buf) = self.buffer.try_lock() {
-            if let Ok(mut idx) = self.write_index.try_lock() {
-                for &s in samples {
-                    buf[*idx] = s;
-                    *idx = (*idx + 1) % self.capacity;
-                }
+        if samples.is_empty() {
+            return;
+        }
+        if let Ok(mut ring) = self.ring.try_lock() {
+            let (buf, idx) = &mut *ring;
+            let cap = self.capacity;
+            if cap == 0 {
+                return;
+            }
+
+            // If the incoming chunk is larger than capacity, keep only the tail
+            // that fits in the ring buffer.
+            let src = if samples.len() > cap {
+                &samples[samples.len() - cap..]
+            } else {
+                samples
+            };
+
+            let start = *idx;
+            let len = src.len();
+
+            if start + len <= cap {
+                buf[start..start + len].copy_from_slice(src);
+                *idx = (start + len) % cap;
+            } else {
+                let first_part = cap - start;
+                buf[start..cap].copy_from_slice(&src[..first_part]);
+                buf[..len - first_part].copy_from_slice(&src[first_part..]);
+                *idx = len - first_part;
             }
         }
     }
 
     /// Snapshot the last N seconds (logical_len) from the ring buffer,
-    /// downsample to 16 kHz mono, encode as Opus inside an OGG container,
+    /// encode as Opus inside an OGG container,
     /// and return the result as a base64 string.
     pub fn get_recent_base64(&self) -> Result<String, String> {
-        let (buffer, write_index, logical_len) = {
-            let buf = self.buffer.lock().map_err(|e| e.to_string())?;
-            let idx = self.write_index.lock().map_err(|e| e.to_string())?;
-            let len = self.logical_len.lock().map_err(|e| e.to_string())?;
-            (buf.clone(), *idx, *len)
+        let logical_len = *self.logical_len.lock().map_err(|e| e.to_string())?;
+
+        let ordered = {
+            // Lock, copy only the requested slice, and unlock immediately.
+            let ring = self.ring.lock().map_err(|e| e.to_string())?;
+            let (buf, write_index) = &*ring;
+
+            if buf.is_empty() || logical_len == 0 {
+                return Err("No audio recorded yet".to_string());
+            }
+
+            let cap = self.capacity;
+            let mut temp_ordered: Vec<f32> = Vec::with_capacity(logical_len);
+            let start = (*write_index + cap - logical_len) % cap;
+
+            if start + logical_len <= cap {
+                temp_ordered.extend_from_slice(&buf[start..start + logical_len]);
+            } else {
+                let first_part = cap - start;
+                temp_ordered.extend_from_slice(&buf[start..cap]);
+                temp_ordered.extend_from_slice(&buf[..logical_len - first_part]);
+            }
+            temp_ordered
         };
-        if buffer.is_empty() || logical_len == 0 {
+
+        if ordered.is_empty() {
             return Err("No audio recorded yet".to_string());
         }
-        let cap = self.capacity;
 
-        // --- 1. Read ring buffer in order ---
-        let start = (write_index + cap - logical_len) % cap;
-        let mut ordered: Vec<f32> = Vec::with_capacity(logical_len);
-        for i in 0..logical_len {
-            let j = (start + i) % cap;
-            ordered.push(buffer[j]);
-        }
-
-        // --- 2. Downsample 48 kHz stereo → 16 kHz mono ---
-        // Ratio = SAMPLE_RATE / OUTPUT_SAMPLE_RATE = 3
-        // For every 3 stereo frames (6 interleaved samples) → 1 mono sample
-        let ratio = (SAMPLE_RATE / OUTPUT_SAMPLE_RATE) as usize; // 3
-        let stereo_frame_size = CHANNELS as usize;                // 2
-        let group = ratio * stereo_frame_size;                    // 6
-        let num_output_samples = ordered.len() / group;
-        let mut mono16k: Vec<f32> = Vec::with_capacity(num_output_samples);
-        for chunk in ordered.chunks_exact(group) {
-            let sum: f32 = chunk.iter().sum();
-            mono16k.push(sum / group as f32);
-        }
-
-        // --- 3. Encode as Opus inside OGG ---
+        // --- 2. Encode as Opus inside OGG ---
         let mut encoder = opus::Encoder::new(
             OUTPUT_SAMPLE_RATE,
             opus::Channels::Mono,
@@ -210,11 +205,11 @@ impl SystemAudioState {
             // Granule position is always at 48 kHz for Opus
             let granule_increment: u64 = 960; // 20 ms at 48 kHz
             let mut granule_pos: u64 = 0;
-            let total_frames = mono16k.len() / frame_size;
+            let total_frames = ordered.len() / frame_size;
             let mut encode_buf = vec![0u8; 4000]; // max Opus packet
 
             for i in 0..total_frames {
-                let frame = &mono16k[i * frame_size..(i + 1) * frame_size];
+                let frame = &ordered[i * frame_size..(i + 1) * frame_size];
                 let n = encoder
                     .encode_float(frame, &mut encode_buf)
                     .map_err(|e| format!("Opus encode: {}", e))?;
@@ -235,11 +230,11 @@ impl SystemAudioState {
             }
 
             // Handle remaining samples (pad with silence to fill a frame)
-            let remainder = mono16k.len() % frame_size;
+            let remainder = ordered.len() % frame_size;
             if remainder > 0 {
                 let mut last_frame = vec![0.0f32; frame_size];
                 let offset = total_frames * frame_size;
-                last_frame[..remainder].copy_from_slice(&mono16k[offset..offset + remainder]);
+                last_frame[..remainder].copy_from_slice(&ordered[offset..offset + remainder]);
                 let n = encoder
                     .encode_float(&last_frame, &mut encode_buf)
                     .map_err(|e| format!("Opus encode tail: {}", e))?;
@@ -256,6 +251,97 @@ impl SystemAudioState {
 
         let bytes = cursor.into_inner();
         Ok(base64::engine::general_purpose::STANDARD.encode(&bytes))
+    }
+}
+
+/// Lightweight converter that downmixes native interleaved audio to mono and
+/// resamples to 16 kHz using linear interpolation with phase continuity.
+pub struct AudioConverter {
+    src_sample_rate: u32,
+    src_channels: u16,
+    prev_mono_sample: Option<f32>,
+    resample_pos: f64,
+}
+
+impl AudioConverter {
+    pub fn new(src_sample_rate: u32, src_channels: u16) -> Self {
+        Self {
+            src_sample_rate,
+            src_channels,
+            prev_mono_sample: None,
+            resample_pos: 0.0,
+        }
+    }
+
+    pub fn reconfigure(&mut self, src_sample_rate: u32, src_channels: u16) {
+        self.src_sample_rate = src_sample_rate;
+        self.src_channels = src_channels;
+        self.prev_mono_sample = None;
+        self.resample_pos = 0.0;
+    }
+
+    pub fn update_source_channels_preserve_phase(&mut self, src_channels: u16) {
+        self.src_channels = src_channels;
+    }
+
+    pub fn source_sample_rate(&self) -> u32 {
+        self.src_sample_rate
+    }
+
+    pub fn source_channels(&self) -> u16 {
+        self.src_channels
+    }
+
+    pub fn convert_interleaved(&mut self, input: &[f32]) -> Vec<f32> {
+        if self.src_sample_rate == 0 || self.src_channels == 0 {
+            return Vec::new();
+        }
+        let src_channels = self.src_channels as usize;
+
+        let frames = input.len() / src_channels;
+        if frames == 0 {
+            return Vec::new();
+        }
+
+        let mut mono = Vec::with_capacity(frames + 1);
+        if let Some(prev) = self.prev_mono_sample {
+            mono.push(prev);
+        }
+
+        for frame in input.chunks_exact(src_channels) {
+            let sum: f32 = frame.iter().copied().sum();
+            mono.push(sum / src_channels as f32);
+        }
+
+        let last = match mono.last().copied() {
+            Some(v) => v,
+            None => return Vec::new(),
+        };
+
+        // Need at least two points for interpolation.
+        if mono.len() < 2 {
+            self.prev_mono_sample = Some(last);
+            return Vec::new();
+        }
+
+        let step = self.src_sample_rate as f64 / OUTPUT_SAMPLE_RATE as f64;
+        let mut out = Vec::new();
+
+        while self.resample_pos + 1.0 < mono.len() as f64 {
+            let idx = self.resample_pos.floor() as usize;
+            let frac = (self.resample_pos - idx as f64) as f32;
+
+            let s0 = mono[idx];
+            let s1 = mono[idx + 1];
+            out.push(s0 + (s1 - s0) * frac);
+
+            self.resample_pos += step;
+        }
+
+        self.resample_pos -= (mono.len() - 1) as f64;
+        self.prev_mono_sample = Some(last);
+
+        out
     }
 }
 
@@ -354,10 +440,45 @@ pub async fn system_audio_status(
     state: tauri::State<'_, Arc<SystemAudioState>>,
 ) -> Result<SystemAudioStatus, String> {
     let logical_len: usize = *state.logical_len.lock().map_err(|e| e.to_string())?;
-    let buffer_seconds = (logical_len as u32) / (SAMPLE_RATE * CHANNELS as u32);
+    let buffer_seconds = (logical_len as u32) / (OUTPUT_SAMPLE_RATE * OUTPUT_CHANNELS as u32);
     Ok(SystemAudioStatus {
         recording: state.is_recording(),
         buffer_seconds,
         supported: cfg!(any(target_os = "macos", target_os = "linux", target_os = "windows")),
     })
+}
+
+/// Save base64-encoded OGG/Opus audio to a user-selected path using native Save dialog.
+#[tauri::command]
+pub async fn system_audio_save_ogg_base64(
+    base64_data: String,
+    suggested_filename: Option<String>,
+) -> Result<Option<String>, String> {
+    let file_name = suggested_filename
+        .map(|name| {
+            if name.trim().is_empty() {
+                "system_audio.ogg".to_string()
+            } else if name.to_lowercase().ends_with(".ogg") {
+                name
+            } else {
+                format!("{}.ogg", name)
+            }
+        })
+        .unwrap_or_else(|| "system_audio.ogg".to_string());
+
+    let Some(path) = rfd::FileDialog::new()
+        .add_filter("OGG audio", &["ogg"])
+        .set_file_name(&file_name)
+        .save_file()
+    else {
+        return Ok(None);
+    };
+
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(base64_data)
+        .map_err(|e| format!("Invalid base64 audio payload: {}", e))?;
+
+    std::fs::write(&path, bytes).map_err(|e| format!("Failed to save audio file: {}", e))?;
+
+    Ok(Some(path.to_string_lossy().to_string()))
 }

@@ -1,7 +1,7 @@
 //! macOS system audio capture using Core Audio Process Tap API (macOS 14.2+).
 //! Falls back to a silence placeholder thread if the tap API is unavailable.
 
-use crate::system_audio::SystemAudioState;
+use crate::system_audio::{AudioConverter, SystemAudioState};
 use std::ffi::{c_char, c_void, CStr};
 use std::ptr;
 use std::sync::{Arc, Mutex as StdMutex};
@@ -21,6 +21,13 @@ use objc2_foundation::{NSArray, NSNumber};
 
 type AudioObjectID = u32;
 type OSStatus = i32;
+
+#[repr(C)]
+struct AudioObjectPropertyAddress {
+    m_selector: u32,
+    m_scope: u32,
+    m_element: u32,
+}
 
 /// IO proc callback function pointer type (matches Apple's AudioDeviceIOProc)
 type AudioIOProc = unsafe extern "C" fn(
@@ -84,7 +91,19 @@ extern "C" {
         device: AudioObjectID,
         proc_id: AudioIOProcID,
     ) -> OSStatus;
+    fn AudioObjectGetPropertyData(
+        object_id: AudioObjectID,
+        address: *const AudioObjectPropertyAddress,
+        qualifier_data_size: u32,
+        qualifier_data: *const c_void,
+        data_size: *mut u32,
+        data: *mut c_void,
+    ) -> OSStatus;
 }
+
+const K_AUDIO_DEVICE_PROPERTY_NOMINAL_SAMPLE_RATE: u32 = 0x6e73_7274; // 'nsrt'
+const K_AUDIO_OBJECT_PROPERTY_SCOPE_GLOBAL: u32 = 0x676c_6f62; // 'glob'
+const K_AUDIO_OBJECT_PROPERTY_ELEMENT_MAIN: u32 = 0;
 
 // ---------------------------------------------------------------------------
 // CoreFoundation C functions for building the aggregate device dictionary
@@ -144,20 +163,25 @@ struct TapState {
     tap_id: AudioObjectID,
     aggregate_device_id: AudioObjectID,
     io_proc_id: AudioIOProcID,
-    /// Prevent the Arc from being dropped while the IO proc holds a raw ptr
-    _state_arc: Arc<SystemAudioState>,
+    /// Prevent the Arc from being dropped while the IO proc holds a raw ptr.
+    _context_arc: Arc<CallbackContext>,
 }
 
 unsafe impl Send for TapState {}
 
 static TAP_STATE: StdMutex<Option<TapState>> = StdMutex::new(None);
 
+struct CallbackContext {
+    state: Arc<SystemAudioState>,
+    converter: StdMutex<AudioConverter>,
+}
+
 // ---------------------------------------------------------------------------
 // IO proc callback – called on the CoreAudio real-time thread
 // ---------------------------------------------------------------------------
 
 unsafe extern "C" fn audio_io_proc_callback(
-    _device: AudioObjectID,
+    device: AudioObjectID,
     _now: *const c_void,
     input_data: *const c_void,
     _input_time: *const c_void,
@@ -169,8 +193,8 @@ unsafe extern "C" fn audio_io_proc_callback(
         return 0;
     }
 
-    let state = &*(client_data as *const SystemAudioState);
-    if !state.is_recording() {
+    let context = &*(client_data as *const CallbackContext);
+    if !context.state.is_recording() {
         return 0;
     }
 
@@ -180,20 +204,91 @@ unsafe extern "C" fn audio_io_proc_callback(
         return 0;
     }
 
-    // mBuffers is a C flexible array member; read `n` elements
+    // mBuffers is a C flexible array member; read `n` elements.
     let buffers = std::slice::from_raw_parts(buf_list.buffers.as_ptr(), n);
 
-    for buf in buffers {
-        if buf.data.is_null() || buf.data_byte_size == 0 {
-            continue;
+    let mut interleaved: Vec<f32> = Vec::new();
+    let mut source_channels: u16 = 0;
+
+    // One buffer with multiple channels (interleaved)
+    if n == 1 {
+        let buf = &buffers[0];
+        if !buf.data.is_null() && buf.data_byte_size > 0 {
+            let num_samples = buf.data_byte_size as usize / std::mem::size_of::<f32>();
+            let samples = std::slice::from_raw_parts(buf.data as *const f32, num_samples);
+            interleaved.extend_from_slice(samples);
+            source_channels = buf._number_channels.max(1) as u16;
         }
-        // CoreAudio process taps deliver 32-bit float samples
-        let num_samples = buf.data_byte_size as usize / std::mem::size_of::<f32>();
-        let samples = std::slice::from_raw_parts(buf.data as *const f32, num_samples);
-        state.push_samples_realtime(samples);
+    } else {
+        // Multiple buffers are typically planar channels. Interleave by frame.
+        let mut planes: Vec<&[f32]> = Vec::new();
+        let mut min_samples = usize::MAX;
+        for buf in buffers {
+            if buf.data.is_null() || buf.data_byte_size == 0 {
+                continue;
+            }
+            let num_samples = buf.data_byte_size as usize / std::mem::size_of::<f32>();
+            let samples = std::slice::from_raw_parts(buf.data as *const f32, num_samples);
+            min_samples = min_samples.min(samples.len());
+            planes.push(samples);
+        }
+
+        if !planes.is_empty() && min_samples != usize::MAX {
+            source_channels = planes.len() as u16;
+            interleaved.reserve(min_samples * planes.len());
+            for i in 0..min_samples {
+                for p in &planes {
+                    interleaved.push(p[i]);
+                }
+            }
+        }
+    }
+
+    if source_channels == 0 || interleaved.is_empty() {
+        return 0;
+    }
+
+    if let Ok(mut converter) = context.converter.try_lock() {
+        // Lazily initialize converter only after capture has started and we
+        // have real callback format data.
+        if converter.source_sample_rate() == 0 || converter.source_channels() == 0 {
+            let actual_rate = query_device_sample_rate(device).unwrap_or(48000);
+            converter.reconfigure(actual_rate, source_channels.max(1));
+        } else if converter.source_channels() != source_channels {
+            // Channel count can flicker at startup; keep resampling phase to
+            // avoid audible discontinuities.
+            converter.update_source_channels_preserve_phase(source_channels.max(1));
+        }
+        let converted = converter.convert_interleaved(&interleaved);
+        if !converted.is_empty() {
+            context.state.push_samples_realtime(&converted);
+        }
     }
 
     0 // noErr
+}
+
+unsafe fn query_device_sample_rate(device_id: AudioObjectID) -> Option<u32> {
+    let address = AudioObjectPropertyAddress {
+        m_selector: K_AUDIO_DEVICE_PROPERTY_NOMINAL_SAMPLE_RATE,
+        m_scope: K_AUDIO_OBJECT_PROPERTY_SCOPE_GLOBAL,
+        m_element: K_AUDIO_OBJECT_PROPERTY_ELEMENT_MAIN,
+    };
+    let mut sample_rate_hz: f64 = 0.0;
+    let mut size = std::mem::size_of::<f64>() as u32;
+    let status = AudioObjectGetPropertyData(
+        device_id,
+        &address,
+        0,
+        ptr::null(),
+        &mut size,
+        (&mut sample_rate_hz as *mut f64).cast(),
+    );
+    if status == 0 && sample_rate_hz.is_finite() && sample_rate_hz > 0.0 {
+        Some(sample_rate_hz.round() as u32)
+    } else {
+        None
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -369,7 +464,11 @@ fn try_start_process_tap(state: Arc<SystemAudioState>) -> Result<(), String> {
         }
 
         // 5. Register our IO proc callback on the aggregate device
-        let state_ptr = Arc::as_ptr(&state) as *mut c_void;
+        let callback_context = Arc::new(CallbackContext {
+            state: state.clone(),
+            converter: StdMutex::new(AudioConverter::new(0, 0)),
+        });
+        let state_ptr = Arc::as_ptr(&callback_context) as *mut c_void;
         let mut io_proc_id: AudioIOProcID = None;
         let status = AudioDeviceCreateIOProcID(
             agg_device_id,
@@ -404,7 +503,7 @@ fn try_start_process_tap(state: Arc<SystemAudioState>) -> Result<(), String> {
             tap_id,
             aggregate_device_id: agg_device_id,
             io_proc_id,
-            _state_arc: state,
+            _context_arc: callback_context,
         });
     }
 
@@ -416,12 +515,11 @@ fn try_start_process_tap(state: Arc<SystemAudioState>) -> Result<(), String> {
 fn start_silence_fallback(state: Arc<SystemAudioState>) {
     let state_clone = state.clone();
     let handle = thread::spawn(move || {
-        let chunk = 9600usize; // ~100 ms at 48 kHz stereo
+        let chunk = 1600usize; // ~100 ms at 16 kHz mono
         let sleep_duration = Duration::from_millis(100);
         while state_clone.is_recording() {
-            for _ in 0..chunk {
-                state_clone.push_sample(0.0f32);
-            }
+            let silence = vec![0.0f32; chunk];
+            state_clone.push_samples_realtime(&silence);
             thread::sleep(sleep_duration);
         }
     });

@@ -8,6 +8,8 @@ export const ANALYTICS_EVENTS = {
   APP_STARTED: "app_started",
   // License Events
   GET_LICENSE: "get_license",
+  // Multimodal request pipeline diagnostics
+  MULTIMODAL_PIPELINE_METRICS: "multimodal_pipeline_metrics",
 } as const;
 
 /**

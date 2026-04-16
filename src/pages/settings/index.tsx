@@ -2,7 +2,6 @@ import {
   Theme,
   AlwaysOnTopToggle,
   AppIconToggle,
-  AutostartToggle,
 } from "./components";
 import { PageLayout } from "@/layouts";
 
@@ -11,9 +10,6 @@ const Settings = () => {
     <PageLayout title="Settings" description="Manage your settings">
       {/* Theme */}
       <Theme />
-
-      {/* Autostart Toggle */}
-      <AutostartToggle />
 
       {/* App Icon Toggle */}
       <AppIconToggle />

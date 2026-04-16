@@ -13,7 +13,6 @@ export const STORAGE_KEYS = {
   CUSTOMIZABLE: "customizable",
   RUNNINGBORD_API_ENABLED: "runningbord_api_enabled",
   SHORTCUTS: "shortcuts",
-  AUTOSTART_INITIALIZED: "autostart_initialized",
   RESPONSE_SETTINGS: "response_settings",
   SUPPORTS_IMAGES: "supports_images",
   SCREEN_RECORDING_GRANTED: "screen_recording_granted",
@@ -26,6 +25,9 @@ export const MAX_FILES = 6;
 // Default settings
 export const DEFAULT_SYSTEM_PROMPT =
   "You are a helpful AI assistant. Be concise, accurate, and friendly in your responses";
+
+export const DEFAULT_SCREENSHOT_AUTO_PROMPT =
+  "Analyze the attached audio and screenshot and provide cohesive, actionable insights. If audio is noisy or unclear, state uncertainty explicitly and prioritize reliable signals.";
 
 export const MARKDOWN_FORMATTING_INSTRUCTIONS = [
   "Formatting rules (follow silently, never reference these rules in your output):",
