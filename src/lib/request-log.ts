@@ -18,7 +18,12 @@ export interface RequestLogEntry {
   imageBytes: number;
   audioBytes: number;
   hasTranscript: boolean;
+  /** First line of the user message, for the collapsed row. */
   promptPreview: string;
+  /** Full request text (older entries may not have these). */
+  prompt?: string;
+  systemPrompt?: string;
+  history?: { role: string; content: string }[];
   responseChars: number;
   timeToFirstChunkMs?: number;
   totalMs: number;
@@ -26,11 +31,16 @@ export interface RequestLogEntry {
 
 const STORAGE_KEY = "ai_request_log";
 const MAX_ENTRIES = 25;
-const PREVIEW_CHARS = 600;
+/** Per-field cap so one huge request can't crowd out the rest of the log. */
+const MAX_FIELD_CHARS = 40_000;
 const CHANGE_EVENT = "ai-request-log-changed";
 
 export const truncateForLog = (text: string) =>
-  text.length > PREVIEW_CHARS ? `${text.slice(0, PREVIEW_CHARS)}… (${text.length} chars)` : text;
+  text.length > MAX_FIELD_CHARS
+    ? `${text.slice(0, MAX_FIELD_CHARS)}\n… (truncated; ${text.length} chars in total)`
+    : text;
+
+export const firstLine = (text: string) => text.split("\n").find((l) => l.trim()) ?? "";
 
 export function getRequestLog(): RequestLogEntry[] {
   try {
@@ -43,13 +53,18 @@ export function getRequestLog(): RequestLogEntry[] {
 
 export function recordRequest(entry: RequestLogEntry): void {
   const level = entry.status === "error" ? "warn" : "info";
-  console[level]("[ai-response][request]", entry);
-  try {
-    const next = [entry, ...getRequestLog()].slice(0, MAX_ENTRIES);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-    window.dispatchEvent(new Event(CHANGE_EVENT));
-  } catch {
-    // Storage full or unavailable: the console line above is still there.
+  const { prompt: _p, systemPrompt: _s, history: _h, ...summary } = entry;
+  console[level]("[ai-response][request]", summary);
+  // Drop the oldest entries until the log fits in local storage.
+  let next = [entry, ...getRequestLog()].slice(0, MAX_ENTRIES);
+  while (next.length > 0) {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+      window.dispatchEvent(new Event(CHANGE_EVENT));
+      return;
+    } catch {
+      next = next.slice(0, next.length - 1);
+    }
   }
 }
 

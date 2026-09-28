@@ -1,13 +1,48 @@
 import { useState } from "react";
 import { ChevronDownIcon, ChevronRightIcon, Trash2Icon } from "lucide-react";
-import { Badge, Button, Header } from "@/components";
-import { clearRequestLog, RequestLogEntry, useRequestLog } from "@/lib";
+import { Badge, Button, CopyButton, Header } from "@/components";
+import { clearRequestLog, firstLine, RequestLogEntry, useRequestLog } from "@/lib";
 import { cn } from "@/lib/utils";
 
 const kb = (bytes: number) => (bytes >= 1024 ? `${(bytes / 1024).toFixed(0)} KB` : `${bytes} B`);
 
 const statusVariant = (status: RequestLogEntry["status"]) =>
   status === "ok" ? "secondary" : status === "error" ? "destructive" : "outline";
+
+/** A collapsible, scrollable block of request text with a copy button. */
+const Section = ({
+  title,
+  children,
+  defaultOpen = false,
+}: {
+  title: string;
+  children: string;
+  defaultOpen?: boolean;
+}) => {
+  const [open, setOpen] = useState(defaultOpen);
+  const Chevron = open ? ChevronDownIcon : ChevronRightIcon;
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center justify-between">
+        <button
+          type="button"
+          onClick={() => setOpen(!open)}
+          className="flex items-center gap-1 text-muted-foreground hover:text-foreground cursor-pointer"
+        >
+          <Chevron className="size-3.5" />
+          {title}
+          <span className="text-[10px]">· {children.length.toLocaleString()} chars</span>
+        </button>
+        {open && <CopyButton content={children} />}
+      </div>
+      {open && (
+        <pre className="whitespace-pre-wrap break-words rounded bg-muted/50 p-2 max-h-96 overflow-auto text-[11px] leading-relaxed">
+          {children}
+        </pre>
+      )}
+    </div>
+  );
+};
 
 const Row = ({ entry }: { entry: RequestLogEntry }) => {
   const [open, setOpen] = useState(false);
@@ -30,7 +65,7 @@ const Row = ({ entry }: { entry: RequestLogEntry }) => {
         <Badge variant={statusVariant(entry.status)} className="text-[10px]">
           {entry.status}
         </Badge>
-        <span className="text-xs truncate flex-1">{entry.promptPreview.split("\n")[0]}</span>
+        <span className="text-xs truncate flex-1">{firstLine(entry.promptPreview)}</span>
         <span className="text-[10px] text-muted-foreground shrink-0">
           {entry.historyMessages} hist · ~{entry.estimatedPromptTokens} tok
           {entry.images > 0 && " · img"}
@@ -67,9 +102,17 @@ const Row = ({ entry }: { entry: RequestLogEntry }) => {
               </>
             )}
           </dl>
-          <pre className="whitespace-pre-wrap rounded bg-muted/50 p-2 max-h-56 overflow-auto">
-            {entry.promptPreview}
-          </pre>
+          <Section title="Message" defaultOpen>
+            {entry.prompt ?? entry.promptPreview}
+          </Section>
+          {entry.history && entry.history.length > 0 && (
+            <Section title={`History sent (${entry.history.length} messages)`}>
+              {entry.history
+                .map((m) => `── ${m.role.toUpperCase()} ──\n${m.content}`)
+                .join("\n\n")}
+            </Section>
+          )}
+          {entry.systemPrompt && <Section title="System prompt">{entry.systemPrompt}</Section>}
         </div>
       )}
     </div>

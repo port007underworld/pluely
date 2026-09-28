@@ -12,7 +12,7 @@ import curl2Json from "@bany/curl-to-json";
 import { shouldUseRunningbordAPI } from "./runningbord.api";
 import { getResponseSettings, RESPONSE_LENGTHS, LANGUAGES } from "@/lib";
 import { MARKDOWN_FORMATTING_INSTRUCTIONS } from "@/config/constants";
-import { recordRequest, RequestLogEntry, truncateForLog } from "../request-log";
+import { firstLine, recordRequest, RequestLogEntry, truncateForLog } from "../request-log";
 
 type NetworkFailureDetails = {
   requestId: string;
@@ -250,7 +250,15 @@ export async function* fetchAIResponse(params: AIRequestParams): AsyncIterable<s
       imageBytes: images.reduce((sum, img) => sum + Math.floor((img.length * 3) / 4), 0),
       audioBytes: params.audioBase64 ? Math.floor((params.audioBase64.length * 3) / 4) : 0,
       hasTranscript: params.userMessage.includes("<meeting_transcript"),
-      promptPreview: truncateForLog(params.userMessage),
+      promptPreview: firstLine(params.userMessage).slice(0, 200),
+      prompt: truncateForLog(params.userMessage),
+      systemPrompt: truncateForLog(buildEnhancedSystemPrompt(params.systemPrompt)),
+      history: history.map((m) => ({
+        role: m.role,
+        content: truncateForLog(
+          typeof m.content === "string" ? m.content : JSON.stringify(m.content)
+        ),
+      })),
       responseChars,
       timeToFirstChunkMs:
         firstChunkAt === undefined ? undefined : Math.round(firstChunkAt - started),
