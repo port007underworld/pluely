@@ -40,6 +40,8 @@ export type IContextType = {
   setScreenRecordingPermission: (granted: boolean) => void;
   systemAudioDaemonConfig: SystemAudioDaemonConfig;
   setSystemAudioDaemonConfig: React.Dispatch<React.SetStateAction<SystemAudioDaemonConfig>>;
+  /** Why system audio capture failed to start, if it did. */
+  systemAudioError: string | null;
   customizable: CustomizableState;
   toggleAppIconVisibility: (isVisible: boolean) => Promise<void>;
   toggleAlwaysOnTop: (isEnabled: boolean) => Promise<void>;

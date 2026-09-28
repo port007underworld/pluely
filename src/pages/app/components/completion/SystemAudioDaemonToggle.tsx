@@ -7,7 +7,7 @@ import { Volume2Icon, VolumeXIcon } from "lucide-react";
  * attach to chat via shortcut, e.g. Cmd+Shift+A).
  */
 export const SystemAudioDaemonToggle = () => {
-  const { systemAudioDaemonConfig, setSystemAudioDaemonConfig } = useApp();
+  const { systemAudioDaemonConfig, setSystemAudioDaemonConfig, systemAudioError } = useApp();
   const enabled = systemAudioDaemonConfig.enabled;
 
   const toggle = () => {
@@ -17,12 +17,14 @@ export const SystemAudioDaemonToggle = () => {
   return (
     <Button
       size="icon"
-      variant={enabled ? "default" : "ghost"}
+      variant={enabled ? (systemAudioError ? "destructive" : "default") : "ghost"}
       className="cursor-pointer"
       title={
-        enabled
-          ? `System audio daemon on (last ${systemAudioDaemonConfig.bufferSeconds}s). Shortcut to attach.`
-          : "Enable system audio daemon to attach last N seconds of system audio to chat"
+        enabled && systemAudioError
+          ? `System audio capture failed: ${systemAudioError}`
+          : enabled
+          ? `System audio capture on (last ${systemAudioDaemonConfig.bufferSeconds}s). Shortcut to attach.`
+          : "Enable system audio capture to include meeting audio with screenshots"
       }
       onClick={toggle}
     >

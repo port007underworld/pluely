@@ -53,17 +53,28 @@ ringbuf = "0.4"
 ogg = "0.9"
 opus = "0.3"
 rfd = "0.15"
+cpal = "0.15"
+whisper-rs = { version = "0.16", features = ["tracing_backend"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 tauri-plugin-macos-permissions = "2"
 tauri-nspanel = { git = "https://github.com/ahkohd/tauri-nspanel", branch = "v2" }
 objc2 = { version = "0.6", features = ["std"] }
 objc2-core-audio = "0.3"
+whisper-rs = { version = "0.16", features = ["metal"] }
+# Speaker embeddings for telling remote speakers apart (static onnxruntime).
+sherpa-rs = { version = "0.6.8", default-features = false, features = ["download-binaries", "static"] }
 objc2-foundation = { version = "0.3", features = ["NSArray", "NSString", "NSUUID", "NSValue", "alloc"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 pipewire = "0.9"
 
-[target.'cfg(target_os = "windows")'.dependencies]
-cpal = "0.15"
 
+
+# Build scripts (e.g. sherpa-rs unpacking its prebuilt archive, whisper-rs) are
+# otherwise compiled unoptimized and take minutes on a clean build.
+[profile.dev.build-override]
+opt-level = 3
+
+[profile.release.build-override]
+opt-level = 3

@@ -7,13 +7,61 @@ import {
 } from "./common.function";
 import { Message, TYPE_PROVIDER } from "@/types";
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
-import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { Channel, invoke } from "@tauri-apps/api/core";
 import curl2Json from "@bany/curl-to-json";
 import { shouldUseRunningbordAPI } from "./runningbord.api";
-import { CHUNK_POLL_INTERVAL_MS } from "../chat-constants";
 import { getResponseSettings, RESPONSE_LENGTHS, LANGUAGES } from "@/lib";
 import { MARKDOWN_FORMATTING_INSTRUCTIONS } from "@/config/constants";
+import { recordRequest, RequestLogEntry, truncateForLog } from "../request-log";
+
+type NetworkFailureDetails = {
+  requestId: string;
+  providerId?: string;
+  url?: string;
+  method?: string;
+  status?: number;
+  statusText?: string;
+  errorName?: string;
+  errorMessage?: string;
+  responseBody?: string;
+  headers?: Record<string, string>;
+};
+
+const REDACTED_HEADER_KEYS = new Set([
+  "authorization",
+  "x-api-key",
+  "api-key",
+  "proxy-authorization",
+  "cookie",
+  "set-cookie",
+]);
+
+function sanitizeHeaders(headers: Record<string, string>): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(headers).map(([key, value]) => {
+      if (REDACTED_HEADER_KEYS.has(key.toLowerCase())) {
+        return [key, "[redacted]"];
+      }
+      return [key, value];
+    })
+  );
+}
+
+function logNetworkFailure(details: NetworkFailureDetails): void {
+  const payload = {
+    ...details,
+    headers: details.headers ? sanitizeHeaders(details.headers) : undefined,
+  };
+  console.error("[ai-response][network-failure]", payload);
+}
+
+function buildRequestId(): string {
+  try {
+    return crypto.randomUUID();
+  } catch {
+    return `req_${Date.now()}_${Math.floor(Math.random() * 1e6)}`;
+  }
+}
 
 function buildEnhancedSystemPrompt(baseSystemPrompt?: string): string {
   const responseSettings = getResponseSettings();
@@ -43,8 +91,12 @@ function buildEnhancedSystemPrompt(baseSystemPrompt?: string): string {
   return prompts.join(" ");
 }
 
-// Runningbord AI streaming function
+type ChatStreamEvent = { event: "chunk"; data: string } | { event: "done" };
+
+// Runningbord (hosted) API: streamed over a per-request channel so chunks from
+// overlapping requests can't mix; aborting cancels the HTTP request in Rust.
 async function* fetchRunningbordAIResponse(params: {
+  requestId: string;
   systemPrompt?: string;
   userMessage: string;
   imagesBase64?: string[];
@@ -52,119 +104,92 @@ async function* fetchRunningbordAIResponse(params: {
   history?: Message[];
   signal?: AbortSignal;
 }): AsyncIterable<string> {
+  const {
+    requestId,
+    systemPrompt,
+    userMessage,
+    imagesBase64 = [],
+    audioBase64,
+    history = [],
+    signal,
+  } = params;
+
+  if (signal?.aborted) return;
+
+  const historyString =
+    history.length > 0
+      ? JSON.stringify(
+          history.map((msg) => ({
+            role: msg.role,
+            content: [{ type: "text", text: msg.content }],
+          }))
+        )
+      : undefined;
+
+  const queue: string[] = [];
+  let done = false;
+  let failure: unknown = null;
+  let wake: (() => void) | null = null;
+  const notify = () => {
+    wake?.();
+    wake = null;
+  };
+
+  const channel = new Channel<ChatStreamEvent>();
+  channel.onmessage = (message) => {
+    if (message.event === "chunk") queue.push(message.data);
+    else done = true;
+    notify();
+  };
+
+  const cancel = () => {
+    invoke("chat_stream_cancel", { requestId }).catch(() => {});
+    notify();
+  };
+  signal?.addEventListener("abort", cancel, { once: true });
+
+  invoke("chat_stream_response", {
+    requestId,
+    onEvent: channel,
+    userMessage,
+    systemPrompt,
+    imageBase64:
+      imagesBase64.length === 0
+        ? undefined
+        : imagesBase64.length === 1
+        ? imagesBase64[0]
+        : imagesBase64,
+    audioBase64,
+    history: historyString,
+  }).catch((error) => {
+    failure = error;
+    notify();
+  });
+
   try {
-    const {
-      systemPrompt,
-      userMessage,
-      imagesBase64 = [],
-      audioBase64,
-      history = [],
-      signal,
-    } = params;
-
-    // Check if already aborted before starting
-    if (signal?.aborted) {
-      return;
-    }
-
-    // Convert history to the expected format
-    let historyString: string | undefined;
-    if (history.length > 0) {
-      // Create a copy before reversing to avoid mutating the original array
-      const formattedHistory = [...history].reverse().map((msg) => ({
-        role: msg.role,
-        content: [{ type: "text", text: msg.content }],
-      }));
-      historyString = JSON.stringify(formattedHistory);
-    }
-
-    // Handle images - can be string or array
-    let imageBase64: any = undefined;
-    if (imagesBase64.length > 0) {
-      imageBase64 = imagesBase64.length === 1 ? imagesBase64[0] : imagesBase64;
-    }
-
-    // Set up streaming event listener
-    let streamComplete = false;
-    const streamChunks: string[] = [];
-
-    const unlisten = await listen("chat_stream_chunk", (event) => {
-      const chunk = event.payload as string;
-      streamChunks.push(chunk);
-    });
-
-    const unlistenComplete = await listen("chat_stream_complete", () => {
-      streamComplete = true;
-    });
-
-    try {
-      // Check if aborted before starting invoke
-      if (signal?.aborted) {
-        unlisten();
-        unlistenComplete();
-        return;
+    while (true) {
+      if (signal?.aborted) return;
+      if (queue.length > 0) {
+        yield queue.shift()!;
+        continue;
       }
-
-      // Start the streaming request using the new API response endpoint
-      await invoke("chat_stream_response", {
-        userMessage,
-        systemPrompt,
-        imageBase64,
-        audioBase64: audioBase64,
-        history: historyString,
+      if (failure !== null) {
+        const message = failure instanceof Error ? failure.message : String(failure);
+        throw new Error(`Runningbord API Error: ${message} (requestId: ${requestId})`);
+      }
+      if (done) return;
+      await new Promise<void>((resolve) => {
+        wake = resolve;
       });
-
-      // Yield chunks as they come in
-      let lastIndex = 0;
-      while (!streamComplete) {
-        // Check if aborted during streaming
-        if (signal?.aborted) {
-          unlisten();
-          unlistenComplete();
-          return;
-        }
-
-        // Wait a bit for chunks to accumulate
-        await new Promise((resolve) =>
-          setTimeout(resolve, CHUNK_POLL_INTERVAL_MS)
-        );
-
-        // Check again after timeout
-        if (signal?.aborted) {
-          unlisten();
-          unlistenComplete();
-          return;
-        }
-
-        // Yield any new chunks
-        for (let i = lastIndex; i < streamChunks.length; i++) {
-          yield streamChunks[i];
-        }
-        lastIndex = streamChunks.length;
-      }
-
-      // Final abort check before yielding remaining chunks
-      if (signal?.aborted) {
-        unlisten();
-        unlistenComplete();
-        return;
-      }
-
-      // Yield any remaining chunks
-      for (let i = lastIndex; i < streamChunks.length; i++) {
-        yield streamChunks[i];
-      }
-    } finally {
-      unlisten();
-      unlistenComplete();
     }
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    yield `Runningbord API Error: ${errorMessage}`;
+  } finally {
+    signal?.removeEventListener("abort", cancel);
+    // Consumer stopped early (superseded request): stop the upstream request too.
+    if (!done && failure === null) cancel();
   }
 }
 
-export async function* fetchAIResponse(params: {
+export interface AIRequestParams {
   provider: TYPE_PROVIDER | undefined;
   selectedProvider: {
     provider: string;
@@ -176,7 +201,67 @@ export async function* fetchAIResponse(params: {
   imagesBase64?: string[];
   audioBase64?: string;
   signal?: AbortSignal;
-}): AsyncIterable<string> {
+  /** Caller's request id, so UI, network logs and the Rust side share one id. */
+  requestId?: string;
+}
+
+const textLength = (content: Message["content"]) =>
+  typeof content === "string" ? content.length : JSON.stringify(content).length;
+
+/** Streams the model's answer and records what was sent in the local request log. */
+export async function* fetchAIResponse(params: AIRequestParams): AsyncIterable<string> {
+  const requestId = params.requestId ?? buildRequestId();
+  const startedAt = Date.now();
+  const started = performance.now();
+  let firstChunkAt: number | undefined;
+  let responseChars = 0;
+  let status: RequestLogEntry["status"] = "cancelled";
+  let error: string | undefined;
+
+  try {
+    for await (const chunk of streamAIResponse({ ...params, requestId })) {
+      if (firstChunkAt === undefined) firstChunkAt = performance.now();
+      responseChars += chunk.length;
+      yield chunk;
+    }
+    status = params.signal?.aborted ? "cancelled" : "ok";
+  } catch (e) {
+    status = "error";
+    error = e instanceof Error ? e.message : String(e);
+    throw e;
+  } finally {
+    // A consumer that stops early (superseded request) lands here as "cancelled".
+    const history = params.history ?? [];
+    const images = params.imagesBase64 ?? [];
+    const promptChars =
+      (params.systemPrompt?.length ?? 0) +
+      params.userMessage.length +
+      history.reduce((sum, m) => sum + textLength(m.content), 0);
+    recordRequest({
+      requestId,
+      startedAt,
+      provider: params.provider?.id ?? "runningbord",
+      status,
+      error,
+      historyMessages: history.length,
+      historyRoles: history.map((m) => (m.role === "user" ? "U" : m.role === "assistant" ? "A" : "S")).join(""),
+      estimatedPromptTokens: Math.ceil(promptChars / 4),
+      images: images.length,
+      imageBytes: images.reduce((sum, img) => sum + Math.floor((img.length * 3) / 4), 0),
+      audioBytes: params.audioBase64 ? Math.floor((params.audioBase64.length * 3) / 4) : 0,
+      hasTranscript: params.userMessage.includes("<meeting_transcript"),
+      promptPreview: truncateForLog(params.userMessage),
+      responseChars,
+      timeToFirstChunkMs:
+        firstChunkAt === undefined ? undefined : Math.round(firstChunkAt - started),
+      totalMs: Math.round(performance.now() - started),
+    });
+  }
+}
+
+async function* streamAIResponse(
+  params: AIRequestParams & { requestId: string }
+): AsyncIterable<string> {
   try {
     const {
       provider,
@@ -189,6 +274,8 @@ export async function* fetchAIResponse(params: {
       signal,
     } = params;
 
+    const { requestId } = params;
+
     // Check if already aborted
     if (signal?.aborted) {
       return;
@@ -200,9 +287,11 @@ export async function* fetchAIResponse(params: {
     const useRunningbordAPI = await shouldUseRunningbordAPI();
     if (useRunningbordAPI) {
       yield* fetchRunningbordAIResponse({
+        requestId,
         systemPrompt: enhancedSystemPrompt,
         userMessage,
         imagesBase64,
+        audioBase64,
         history,
         signal,
       });
@@ -260,25 +349,6 @@ export async function* fetchAIResponse(params: {
       );
     }
 
-    let bodyObj: any = curlJson.data
-      ? JSON.parse(JSON.stringify(curlJson.data))
-      : {};
-
-    const messagesKey = Object.keys(bodyObj).find((key) =>
-      ["messages", "contents", "conversation", "history"].includes(key)
-    );
-
-    if (messagesKey && Array.isArray(bodyObj[messagesKey])) {
-      const finalMessages = buildDynamicMessages(
-        bodyObj[messagesKey],
-        history,
-        userMessage,
-        imagesBase64,
-        audioBase64
-      );
-      bodyObj[messagesKey] = finalMessages;
-    }
-
     const allVariables: Record<string, any> = {
       ...Object.fromEntries(
         Object.entries(selectedProvider.variables).map(([key, value]) => [
@@ -289,17 +359,37 @@ export async function* fetchAIResponse(params: {
       SYSTEM_PROMPT: enhancedSystemPrompt || "",
     };
 
-    // Inject AUDIO variable if present
+    // Substitute variables into the template before any user/history content is
+    // inserted, so message text containing "{{API_KEY}}" etc. is never expanded.
+    let bodyObj: any = deepVariableReplacer(
+      curlJson.data ? JSON.parse(JSON.stringify(curlJson.data)) : {},
+      allVariables
+    );
+
+    const messagesKey = Object.keys(bodyObj).find((key) =>
+      ["messages", "contents", "conversation", "history"].includes(key)
+    );
+
+    if (messagesKey && Array.isArray(bodyObj[messagesKey])) {
+      bodyObj[messagesKey] = buildDynamicMessages(
+        bodyObj[messagesKey],
+        history,
+        userMessage,
+        imagesBase64,
+        audioBase64
+      );
+    }
+
     const cleanAudio = audioBase64
       ? audioBase64.replace(/^data:.*;base64,/, "")
       : "";
-    allVariables["AUDIO"] = cleanAudio;
+    for (const key of Object.keys(bodyObj)) {
+      if (key !== messagesKey) {
+        bodyObj[key] = deepVariableReplacer(bodyObj[key], { AUDIO: cleanAudio });
+      }
+    }
 
-    bodyObj = deepVariableReplacer(bodyObj, allVariables);
     let url = deepVariableReplacer(curlJson.url || "", allVariables);
-
-    console.log("DEBUG: Final URL after replacement:", url);
-    console.log("DEBUG: Variables being used:", allVariables);
 
     const headers = deepVariableReplacer(curlJson.header || {}, allVariables);
     headers["Content-Type"] = "application/json";
@@ -335,10 +425,21 @@ export async function* fetchAIResponse(params: {
       ) {
         return; // Silently return on abort
       }
-      yield `Network error during API request: ${
-        fetchError instanceof Error ? fetchError.message : "Unknown error"
-      }`;
-      return;
+      logNetworkFailure({
+        requestId,
+        providerId: provider?.id,
+        url,
+        method: curlJson.method || "POST",
+        errorName: fetchError instanceof Error ? fetchError.name : undefined,
+        errorMessage:
+          fetchError instanceof Error ? fetchError.message : "Unknown error",
+        headers: headers as Record<string, string>,
+      });
+      throw new Error(
+        `Network error during API request: ${
+          fetchError instanceof Error ? fetchError.message : "Unknown error"
+        } (requestId: ${requestId})`
+      );
     }
 
     if (!response.ok) {
@@ -346,10 +447,21 @@ export async function* fetchAIResponse(params: {
       try {
         errorText = await response.text();
       } catch {}
-      yield `API request failed: ${response.status} ${response.statusText}${
-        errorText ? ` - ${errorText}` : ""
-      }`;
-      return;
+      logNetworkFailure({
+        requestId,
+        providerId: provider?.id,
+        url,
+        method: curlJson.method || "POST",
+        status: response.status,
+        statusText: response.statusText,
+        responseBody: errorText ? errorText.slice(0, 2000) : undefined,
+        headers: headers as Record<string, string>,
+      });
+      throw new Error(
+        `API request failed: ${response.status} ${response.statusText}${
+          errorText ? ` - ${errorText}` : ""
+        } (requestId: ${requestId})`
+      );
     }
 
     if (!provider?.streaming) {
@@ -357,10 +469,11 @@ export async function* fetchAIResponse(params: {
       try {
         json = await response.json();
       } catch (parseError) {
-        yield `Failed to parse non-streaming response: ${
-          parseError instanceof Error ? parseError.message : "Unknown error"
-        }`;
-        return;
+        throw new Error(
+          `Failed to parse non-streaming response: ${
+            parseError instanceof Error ? parseError.message : "Unknown error"
+          } (requestId: ${requestId})`
+        );
       }
       const content = getByPath(json, provider?.responseContentPath || "") || "";
       yield content;
@@ -368,8 +481,7 @@ export async function* fetchAIResponse(params: {
     }
 
     if (!response.body) {
-      yield "Streaming not supported or response body missing";
-      return;
+      throw new Error("Streaming not supported or response body missing");
     }
 
     const reader = response.body.getReader();
@@ -394,10 +506,21 @@ export async function* fetchAIResponse(params: {
         ) {
           return; // Silently return on abort
         }
-        yield `Error reading stream: ${
-          readError instanceof Error ? readError.message : "Unknown error"
-        }`;
-        return;
+        logNetworkFailure({
+          requestId,
+          providerId: provider?.id,
+          url,
+          method: curlJson.method || "POST",
+          errorName: readError instanceof Error ? readError.name : undefined,
+          errorMessage:
+            readError instanceof Error ? readError.message : "Unknown error",
+          headers: headers as Record<string, string>,
+        });
+        throw new Error(
+          `Error reading stream: ${
+            readError instanceof Error ? readError.message : "Unknown error"
+          } (requestId: ${requestId})`
+        );
       }
       const { done, value } = readResult;
       if (done) break;
@@ -432,10 +555,6 @@ export async function* fetchAIResponse(params: {
       }
     }
   } catch (error) {
-    throw new Error(
-      `Error in fetchAIResponse: ${
-        error instanceof Error ? error.message : "Unknown error"
-      }`
-    );
+    throw error instanceof Error ? error : new Error(String(error));
   }
 }

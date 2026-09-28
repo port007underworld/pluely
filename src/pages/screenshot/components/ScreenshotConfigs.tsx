@@ -9,6 +9,7 @@ import {
   Switch,
 } from "@/components";
 import { UseSettingsReturn } from "@/types";
+import { useTranscriptionConfig } from "@/lib";
 import { useState, useEffect } from "react";
 import { LaptopMinimalIcon, MousePointer2Icon } from "lucide-react";
 
@@ -27,7 +28,11 @@ export const ScreenshotConfigs = ({
   hasActiveLicense,
 }: UseSettingsReturn) => {
 
-    // ---- local draft input state (smooth typing) ----
+    const [transcriptionConfig] = useTranscriptionConfig();
+  const liveTranscription =
+    transcriptionConfig.engine === "local" && transcriptionConfig.live;
+
+  // ---- local draft input state (smooth typing) ----
   const [bufferInput, setBufferInput] = useState(
     String(systemAudioDaemonConfig.bufferSeconds ?? 30)
   );
@@ -248,23 +253,35 @@ export const ScreenshotConfigs = ({
 
       </div>
 
-      {/* System audio daemon: record last N seconds of system audio, attach on shortcut */}
+      {/* Step 1 of meeting audio: capture. What happens to it is step 2 (TranscriptionSettings). */}
       <div id="system-audio" className="space-y-3 pt-4 border-t border-border/50">
         <Header
-          title="System audio daemon"
-          description="Record the last N seconds of system audio in the background. Use the shortcut (e.g. Cmd+Shift+S) to attach screenshot along with audio in chat. macOS 14.2+ only; toggle in the main bar when enabled."
+          title="1. Meeting audio capture"
+          description="While on, Runningbord keeps listening to your computer's audio (the other people in a call) so the screenshot shortcut can include what was just said. Nothing leaves your machine until you press the shortcut. Also toggled by the speaker icon in the overlay. macOS 14.2+."
         />
         <div className="flex flex-col gap-2">
           <div className="flex items-center justify-between">
-            <Label className="text-sm font-medium">Enable system audio daemon</Label>
+            <Label className="text-sm font-medium">Capture system audio</Label>
             <Switch
               checked={systemAudioDaemonConfig.enabled}
               onCheckedChange={handleSystemAudioDaemonEnabledChange}
             />
           </div>
-          {systemAudioDaemonConfig.enabled && (
+          {systemAudioDaemonConfig.enabled && liveTranscription && (
+            <p className="text-xs text-muted-foreground">
+              Live transcription is on, so how much conversation is sent is set under{" "}
+              <em>Send with each shortcut press</em> below.
+            </p>
+          )}
+          {systemAudioDaemonConfig.enabled && !liveTranscription && (
             <div className="flex items-center justify-between gap-2">
-              <Label className="text-sm">Buffer (seconds)</Label>
+              <div>
+                <Label className="text-sm">Audio sent per shortcut (seconds)</Label>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  The most recent seconds of audio that get transcribed or attached when you press
+                  the shortcut (5–300).
+                </p>
+              </div>
             <input
               type="number"
               min={5}

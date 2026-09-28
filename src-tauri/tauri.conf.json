@@ -43,8 +43,12 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "resources": ["info.plist", "runningbord.desktop"],
-    "macOS": { "minimumSystemVersion": "10.13" }
+    "resources": ["runningbord.desktop"],
+    "macOS": {
+      "minimumSystemVersion": "10.13",
+      "entitlements": "./entitlements.plist",
+      "hardenedRuntime": true
+    }
   },
   "plugins": {
     "sql": {

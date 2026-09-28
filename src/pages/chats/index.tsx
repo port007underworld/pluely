@@ -79,7 +79,7 @@ const Dashboard = () => {
                           </p>
                           <div className="flex items-center gap-1">
                             <Badge variant="outline" className="text-xs">
-                              {doc.messages.length} messages
+                              {doc.messageCount ?? doc.messages.length} messages
                             </Badge>
                             <Badge variant="outline" className="text-xs">
                               {moment(doc.updatedAt).format("hh:mm A")}

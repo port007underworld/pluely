@@ -47,7 +47,7 @@ export const useMenuItems = () => {
     },
     {
       icon: MonitorIcon,
-      label: "Screenshot",
+      label: "Screenshot & Audio",
       href: "/screenshot",
     },
     {

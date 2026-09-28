@@ -58,6 +58,26 @@ jobs:
       - name: Install frontend deps
         run: npm ci
 
+      # Optional stable signing with a self-signed certificate (see
+      # scripts/macos-signing-cert.sh). A constant signature lets macOS keep
+      # Screen Recording / Microphone / System Audio grants across updates.
+      # Skipped when the secrets aren't configured (e.g. forks).
+      - name: Configure macOS code signing
+        if: matrix.platform == 'macos-latest'
+        env:
+          CERT: ${{ secrets.APPLE_CERTIFICATE }}
+          CERT_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        run: |
+          if [ -n "$CERT" ] && [ -n "$CERT_PASSWORD" ] && [ -n "$IDENTITY" ]; then
+            echo "APPLE_CERTIFICATE=$CERT" >> "$GITHUB_ENV"
+            echo "APPLE_CERTIFICATE_PASSWORD=$CERT_PASSWORD" >> "$GITHUB_ENV"
+            echo "APPLE_SIGNING_IDENTITY=$IDENTITY" >> "$GITHUB_ENV"
+            echo "macOS builds will be signed with \"$IDENTITY\"."
+          else
+            echo "No signing secrets; macOS builds stay ad-hoc signed."
+          fi
+
       - name: Build & publish
         uses: tauri-apps/tauri-action@v0.5.16
         env:
@@ -71,7 +91,7 @@ jobs:
         with:
           tagName: app-v__VERSION__
           releaseName: "Runningbord v__VERSION__"
-          releaseBody: "Download binaries for your OS. macOS users: If blocked, go to System Settings > Privacy & Security > Security section, find 'runningbord was blocked' message, click 'Allow Anyway', then reopen the app."
+          releaseBody: "Download binaries for your OS. macOS users: the app is signed but not notarized, so the first launch is blocked. Right-click the app and choose Open, or go to System Settings > Privacy & Security, find 'runningbord was blocked', click 'Allow Anyway', then reopen the app. Permissions you grant are kept across updates."
           releaseDraft: true
           prerelease: false
           includeUpdaterJson: true

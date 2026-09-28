@@ -27,6 +27,9 @@ export const Input = ({
   messageHistoryOpen,
   setMessageHistoryOpen,
   error,
+  audioNotice,
+  idleResetNotice,
+  contextInfo,
   response,
   cancel,
   scrollAreaRef,
@@ -104,6 +107,18 @@ export const Input = ({
               <div className="text-[10px] text-muted-foreground/70">
                 (Use arrow keys to scroll)
               </div>
+              {contextInfo && contextInfo.totalMessages > 0 && (
+                <div
+                  className="text-[10px] text-muted-foreground/70"
+                  title="Past messages sent with the last request. Adjust in Response Settings › Conversation Memory."
+                >
+                  · Context: {contextInfo.sentMessages}/{contextInfo.totalMessages} msgs, ~
+                  {contextInfo.estimatedTokens >= 1000
+                    ? `${(contextInfo.estimatedTokens / 1000).toFixed(1)}k`
+                    : contextInfo.estimatedTokens}{" "}
+                  tokens
+                </div>
+              )}
             </div>
             <div className="flex items-center gap-2 select-none">
               {/* Fast/Slow model toggle — only visible when slow model is configured */}
@@ -190,6 +205,14 @@ export const Input = ({
                   <strong>Error:</strong> {error}
                 </div>
               )}
+              {idleResetNotice && (
+                <p className="mb-3 text-[11px] text-muted-foreground">{idleResetNotice}</p>
+              )}
+              {audioNotice && (
+                <div className="mb-4 p-3 bg-amber-500/10 border border-amber-500/20 rounded text-xs text-amber-700 dark:text-amber-400">
+                  <strong>Meeting audio:</strong> {audioNotice}
+                </div>
+              )}
               {isLoading && (
                 <div className="flex items-center gap-2 my-4 text-muted-foreground animate-pulse select-none">
                   <Loader2 className="h-4 w-4 animate-spin" />
@@ -201,7 +224,7 @@ export const Input = ({
               {/* Conversation History - Separate scroll, no auto-scroll */}
               {keepEngaged && conversationHistory.length > 1 && (
                 <div className="space-y-3 pt-3">
-                  {conversationHistory
+                  {[...conversationHistory]
                     .sort((a, b) => b?.timestamp - a?.timestamp)
                     .map((message, index) => {
                       if (!isLoading && index === 0) {

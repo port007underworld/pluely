@@ -89,6 +89,10 @@ impl SystemAudioState {
         self.recording.load(Ordering::SeqCst)
     }
 
+    pub fn set_recording(&self, recording: bool) {
+        self.recording.store(recording, Ordering::SeqCst);
+    }
+
     /// Store the capture thread handle so it can be joined on stop (macOS fallback).
     pub fn store_capture_handle(&self, handle: thread::JoinHandle<()>) {
         if let Ok(mut h) = self.capture_handle.lock() {
@@ -139,44 +143,83 @@ impl SystemAudioState {
         }
     }
 
-    /// Snapshot the last N seconds (logical_len) from the ring buffer,
-    /// encode as Opus inside an OGG container,
-    /// and return the result as a base64 string.
-    pub fn get_recent_base64(&self) -> Result<String, String> {
+    /// Copy the most recent samples (16 kHz mono) in chronological order.
+    /// `max_seconds` defaults to the configured buffer length.
+    pub fn recent_samples(&self, max_seconds: Option<u32>) -> Result<Vec<f32>, String> {
         let logical_len = *self.logical_len.lock().map_err(|e| e.to_string())?;
+        let requested = max_seconds
+            .map(|s| (s as usize).saturating_mul(OUTPUT_SAMPLE_RATE as usize * OUTPUT_CHANNELS as usize))
+            .unwrap_or(logical_len)
+            .min(logical_len);
         let captured = self.written_samples.load(Ordering::Acquire);
-        let available_len = logical_len.min(captured.min(self.capacity));
+        let available_len = requested.min(captured.min(self.capacity));
 
+        if !self.is_recording() {
+            return Err("System audio capture is not running".to_string());
+        }
         if available_len == 0 {
             return Err("No audio recorded yet".to_string());
         }
 
-        let ordered = {
-            // Lock, copy only the requested slice, and unlock immediately.
-            let ring = self.ring.lock().map_err(|e| e.to_string())?;
-            let (buf, write_index) = &*ring;
+        let ring = self.ring.lock().map_err(|e| e.to_string())?;
+        let (buf, write_index) = &*ring;
+        let cap = self.capacity;
+        let mut ordered: Vec<f32> = Vec::with_capacity(available_len);
+        let start = (*write_index + cap - available_len) % cap;
 
-            if buf.is_empty() {
-                return Err("No audio recorded yet".to_string());
-            }
-
-            let cap = self.capacity;
-            let mut temp_ordered: Vec<f32> = Vec::with_capacity(available_len);
-            let start = (*write_index + cap - available_len) % cap;
-
-            if start + available_len <= cap {
-                temp_ordered.extend_from_slice(&buf[start..start + available_len]);
-            } else {
-                let first_part = cap - start;
-                temp_ordered.extend_from_slice(&buf[start..cap]);
-                temp_ordered.extend_from_slice(&buf[..available_len - first_part]);
-            }
-            temp_ordered
-        };
-
-        if ordered.is_empty() {
-            return Err("No audio recorded yet".to_string());
+        if start + available_len <= cap {
+            ordered.extend_from_slice(&buf[start..start + available_len]);
+        } else {
+            let first_part = cap - start;
+            ordered.extend_from_slice(&buf[start..cap]);
+            ordered.extend_from_slice(&buf[..available_len - first_part]);
         }
+        Ok(ordered)
+    }
+
+    /// Current value of the running sample counter (for `samples_since`).
+    pub fn written_position(&self) -> usize {
+        self.written_samples.load(Ordering::Acquire)
+    }
+
+    /// Samples written after absolute position `from` (a value of the running
+    /// `written_samples` counter), plus the new end position. If the capture was
+    /// restarted (counter reset) reading resumes from the start of the new session.
+    pub fn samples_since(&self, from: usize) -> (Vec<f32>, usize) {
+        let Ok(ring) = self.ring.lock() else {
+            return (Vec::new(), from);
+        };
+        // Read under the ring lock: push_samples_realtime bumps the counter while holding it.
+        let end = self.written_samples.load(Ordering::Acquire);
+        let from = if from > end { 0 } else { from };
+        let len = (end - from).min(self.capacity);
+        if len == 0 {
+            return (Vec::new(), end);
+        }
+        let (buf, write_index) = &*ring;
+        let cap = self.capacity;
+        let start = (*write_index + cap - len) % cap;
+        let mut out = Vec::with_capacity(len);
+        if start + len <= cap {
+            out.extend_from_slice(&buf[start..start + len]);
+        } else {
+            out.extend_from_slice(&buf[start..cap]);
+            out.extend_from_slice(&buf[..len - (cap - start)]);
+        }
+        (out, end)
+    }
+
+    /// Last N seconds as a 16 kHz mono PCM16 WAV, base64-encoded (for cloud STT).
+    pub fn get_recent_wav_base64(&self, max_seconds: Option<u32>) -> Result<String, String> {
+        let samples = self.recent_samples(max_seconds)?;
+        Ok(base64::engine::general_purpose::STANDARD.encode(encode_wav_pcm16(&samples)))
+    }
+
+    /// Snapshot the last N seconds (logical_len) from the ring buffer,
+    /// encode as Opus inside an OGG container,
+    /// and return the result as a base64 string.
+    pub fn get_recent_base64(&self) -> Result<String, String> {
+        let ordered = self.recent_samples(None)?;
 
         // --- 2. Encode as Opus inside OGG ---
         let mut encoder = opus::Encoder::new(
@@ -277,6 +320,46 @@ impl SystemAudioState {
         let bytes = cursor.into_inner();
         Ok(base64::engine::general_purpose::STANDARD.encode(&bytes))
     }
+}
+
+pub fn encode_wav_pcm16(samples: &[f32]) -> Vec<u8> {
+    let data_len = (samples.len() * 2) as u32;
+    let byte_rate = OUTPUT_SAMPLE_RATE * OUTPUT_CHANNELS as u32 * 2;
+    let mut out = Vec::with_capacity(44 + data_len as usize);
+    out.extend_from_slice(b"RIFF");
+    out.extend_from_slice(&(36 + data_len).to_le_bytes());
+    out.extend_from_slice(b"WAVEfmt ");
+    out.extend_from_slice(&16u32.to_le_bytes());
+    out.extend_from_slice(&1u16.to_le_bytes()); // PCM
+    out.extend_from_slice(&OUTPUT_CHANNELS.to_le_bytes());
+    out.extend_from_slice(&OUTPUT_SAMPLE_RATE.to_le_bytes());
+    out.extend_from_slice(&byte_rate.to_le_bytes());
+    out.extend_from_slice(&(OUTPUT_CHANNELS * 2).to_le_bytes()); // block align
+    out.extend_from_slice(&16u16.to_le_bytes()); // bits per sample
+    out.extend_from_slice(b"data");
+    out.extend_from_slice(&data_len.to_le_bytes());
+    for s in samples {
+        let v = (s.clamp(-1.0, 1.0) * i16::MAX as f32) as i16;
+        out.extend_from_slice(&v.to_le_bytes());
+    }
+    out
+}
+
+/// Fraction of 20 ms frames whose RMS is below a speech-ish floor (~-50 dBFS).
+pub fn silence_ratio(samples: &[f32]) -> f32 {
+    let frame = (OUTPUT_SAMPLE_RATE as usize) / 50;
+    let frames: Vec<&[f32]> = samples.chunks(frame).collect();
+    if frames.is_empty() {
+        return 1.0;
+    }
+    let silent = frames
+        .iter()
+        .filter(|f| {
+            let rms = (f.iter().map(|s| s * s).sum::<f32>() / f.len() as f32).sqrt();
+            rms < 0.003
+        })
+        .count();
+    silent as f32 / frames.len() as f32
 }
 
 /// Lightweight converter that downmixes native interleaved audio to mono and
@@ -383,10 +466,11 @@ pub async fn system_audio_start(
     buffer_seconds: u32,
     state: tauri::State<'_, Arc<SystemAudioState>>,
 ) -> Result<(), String> {
+    // Ring capacity is always MAX_BUFFER_SECONDS, so a new window applies live.
+    state.set_buffer_seconds(buffer_seconds);
     if state.recording.load(Ordering::SeqCst) {
         return Ok(());
     }
-    state.set_buffer_seconds(buffer_seconds);
     state.reset_capture_state();
     // Set recording true before spawning capture so the thread sees it
     state.recording.store(true, Ordering::SeqCst);
@@ -450,6 +534,15 @@ pub async fn system_audio_get_recent_base64(
     state: tauri::State<'_, Arc<SystemAudioState>>,
 ) -> Result<String, String> {
     state.get_recent_base64()
+}
+
+/// Last N seconds of system audio as base64 WAV (16 kHz mono PCM16), for cloud STT.
+#[tauri::command]
+pub async fn system_audio_get_recent_wav_base64(
+    seconds: Option<u32>,
+    state: tauri::State<'_, Arc<SystemAudioState>>,
+) -> Result<String, String> {
+    state.get_recent_wav_base64(seconds)
 }
 
 /// Return whether the daemon is currently recording.

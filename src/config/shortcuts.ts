@@ -52,6 +52,16 @@ export const DEFAULT_SHORTCUT_ACTIONS: ShortcutAction[] = [
     },
   },
   {
+    id: "new_conversation",
+    name: "New Conversation",
+    description: "Start a fresh conversation in the overlay (clears the AI's memory of this chat)",
+    defaultKey: {
+      macos: "cmd+shift+n",
+      windows: "ctrl+shift+n",
+      linux: "ctrl+shift+n",
+    },
+  },
+  {
     id: "toggle_system_audio",
     name: "Toggle System Audio",
     description: "Enable/Disable the system audio daemon",

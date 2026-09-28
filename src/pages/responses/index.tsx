@@ -2,6 +2,7 @@ import {
   ResponseLength,
   LanguageSelector,
   AutoScrollToggle,
+  ConversationMemory,
 } from "./components";
 import { PageLayout } from "@/layouts";
 import { useApp } from "@/contexts";
@@ -35,6 +36,8 @@ const Responses = () => {
 
       {/* Auto-Scroll Toggle */}
       <AutoScrollToggle />
+
+      <ConversationMemory />
     </PageLayout>
   );
 };

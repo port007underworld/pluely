@@ -22,3 +22,7 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Exported code-signing certificate and secrets (scripts/macos-signing-cert.sh --export-ci)
+signing/
+*.p12

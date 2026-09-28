@@ -3,6 +3,10 @@ mod activate;
 mod api;
 mod capture;
 mod db;
+mod local_stt;
+mod mic_audio;
+mod live_transcript;
+mod speaker_id;
 mod shortcuts;
 mod system_audio;
 mod window;
@@ -43,6 +47,9 @@ pub fn run() {
         )
         .manage(CaptureState::default())
         .manage(Arc::new(SystemAudioState::new()))
+        .manage(Arc::new(local_stt::LocalSttState::default()))
+        .manage(Arc::new(mic_audio::MicAudioState::new()))
+        .manage(Arc::new(live_transcript::LiveTranscriber::default()))
         .manage(shortcuts::WindowVisibility {
             is_hidden: Mutex::new(false),
         })
@@ -106,8 +113,28 @@ pub fn run() {
             system_audio::system_audio_save_ogg_base64,
             system_audio::system_audio_is_recording,
             system_audio::system_audio_status,
+            system_audio::system_audio_get_recent_wav_base64,
+            local_stt::local_stt_list_models,
+            local_stt::local_stt_download_model,
+            local_stt::local_stt_cancel_download,
+            local_stt::local_stt_delete_model,
+            local_stt::local_stt_transcribe_recent,
+            local_stt::system_audio_silence_ratio,
+            mic_audio::mic_audio_start,
+            mic_audio::mic_audio_stop,
+            mic_audio::mic_audio_is_recording,
+            mic_audio::mic_audio_get_recent_wav_base64,
+            mic_audio::mic_audio_silence_ratio,
+            live_transcript::live_transcript_start,
+            live_transcript::live_transcript_stop,
+            live_transcript::live_transcript_status,
+            live_transcript::live_transcript_get,
+            speaker_id::speaker_model_status,
+            speaker_id::speaker_model_download,
+            speaker_id::speaker_model_delete,
             api::transcribe_audio,
             api::chat_stream_response,
+            api::chat_stream_cancel,
             api::fetch_models,
             api::fetch_prompts,
             api::create_system_prompt,

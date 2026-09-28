@@ -6,7 +6,8 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Button, ScrollArea } from "@/components";
-import { PaperclipIcon, XIcon, PlusIcon, TrashIcon, MusicIcon, DownloadIcon } from "lucide-react";
+import { PaperclipIcon, XIcon, PlusIcon, TrashIcon, MusicIcon, DownloadIcon, FileTextIcon } from "lucide-react";
+import { base64ToText } from "@/lib";
 import { UseCompletionReturn } from "@/types";
 import { MAX_FILES } from "@/config";
 
@@ -103,10 +104,18 @@ export const Files = ({
               >
                 {attachedFiles.map((file) => {
                   const isAudio = file.type.startsWith("audio/");
-                  
+                  const isText = file.type === "text/plain";
+
                   return (
                     <div key={file.id} className="relative group border rounded-lg overflow-hidden bg-muted/20 aspect-square flex items-center justify-center">
-                      {isAudio ? (
+                      {isText ? (
+                        <div className="flex flex-col gap-2 p-3 pb-12 w-full h-full overflow-hidden">
+                          <FileTextIcon className="h-5 w-5 shrink-0 text-primary/60" />
+                          <p className="text-[10px] leading-snug text-muted-foreground whitespace-pre-wrap overflow-hidden">
+                            {base64ToText(file.base64)}
+                          </p>
+                        </div>
+                      ) : isAudio ? (
                         <div className="flex flex-col items-center gap-2 p-4 w-full">
                           <MusicIcon className="h-8 w-8 text-primary/60" />
                           <span className="text-[10px] text-center truncate w-full px-2 font-medium">

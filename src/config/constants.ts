@@ -17,6 +17,8 @@ export const STORAGE_KEYS = {
   SUPPORTS_IMAGES: "supports_images",
   SCREEN_RECORDING_GRANTED: "screen_recording_granted",
   SYSTEM_AUDIO_DAEMON_CONFIG: "system_audio_daemon_config",
+  TRANSCRIPTION_CONFIG: "transcription_config",
+  CONVERSATION_SETTINGS: "conversation_settings",
 } as const;
 
 // Max number of files that can be attached to a message
@@ -27,7 +29,7 @@ export const DEFAULT_SYSTEM_PROMPT =
   "You are a helpful AI assistant. Be concise, accurate, and friendly in your responses";
 
 export const DEFAULT_SCREENSHOT_AUTO_PROMPT =
-  "Analyze the attached audio and screenshot and provide cohesive, actionable insights. If audio is noisy or unclear, state uncertainty explicitly and prioritize reliable signals.";
+  "Analyze the screenshot together with the attached meeting transcript or audio, if any, and provide cohesive, actionable insights. If someone asked a question, answer it directly. If the audio is noisy or unclear, state uncertainty explicitly and prioritize reliable signals.";
 
 export const MARKDOWN_FORMATTING_INSTRUCTIONS = [
   "Formatting rules (follow silently, never reference these rules in your output):",

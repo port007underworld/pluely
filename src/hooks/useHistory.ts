@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import {
-  getAllConversations,
+  listConversations,
+  getConversationById,
   deleteConversation,
   DOWNLOAD_SUCCESS_DISPLAY_MS,
 } from "@/lib";
@@ -39,7 +40,8 @@ export interface UseHistoryReturn {
   isLoading: boolean;
 }
 
-export function useHistory(): UseHistoryReturn {
+/** `loadList: false` skips loading the conversation list (e.g. on a single chat view). */
+export function useHistory({ loadList = true }: { loadList?: boolean } = {}): UseHistoryReturn {
   const [isLoading, setIsLoading] = useState(false);
   const [conversations, setConversations] = useState<ChatConversation[]>([]);
   const [search, setSearch] = useState("");
@@ -61,7 +63,7 @@ export function useHistory(): UseHistoryReturn {
   const refreshConversations = useCallback(async () => {
     try {
       setIsLoading(true);
-      const loadedConversations = await getAllConversations();
+      const loadedConversations = await listConversations();
       setConversations(loadedConversations);
     } catch (error) {
       console.error("Failed to load conversations:", error);
@@ -73,14 +75,14 @@ export function useHistory(): UseHistoryReturn {
 
   // Load conversations when component mounts or popover opens
   useEffect(() => {
-    refreshConversations();
-  }, [refreshConversations]);
+    if (loadList) refreshConversations();
+  }, [refreshConversations, loadList]);
 
   const handleViewConversation = (conversation: ChatConversation) => {
     setViewingConversation(conversation);
   };
 
-  const handleDownloadConversation = (
+  const handleDownloadConversation = async (
     conversation: ChatConversation,
     e: React.MouseEvent
   ) => {
@@ -90,8 +92,12 @@ export function useHistory(): UseHistoryReturn {
     setDownloadedConversations((prev) => new Set(prev).add(conversation.id));
 
     try {
-      // Convert conversation to markdown format
-      const markdown = generateConversationMarkdown(conversation);
+      // List summaries don't carry messages; load the full conversation first.
+      const full =
+        conversation.messages.length === 0 && (conversation.messageCount ?? 0) > 0
+          ? (await getConversationById(conversation.id)) ?? conversation
+          : conversation;
+      const markdown = generateConversationMarkdown(full);
 
       // Create and download the file
       const blob = new Blob([markdown], { type: "text/markdown" });

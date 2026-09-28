@@ -3,7 +3,9 @@ import { useApp } from "@/contexts";
 import { MAX_FILES } from "@/config";
 import {
   fetchAIResponse,
-  saveConversation,
+  appendMessages,
+  buildBudgetedHistory,
+  getConversationSettings,
   getConversationById,
   generateConversationTitle,
   shouldUseRunningbordAPI,
@@ -11,6 +13,8 @@ import {
   generateMessageId,
   generateRequestId,
   getResponseSettings,
+  ensureScreenRecordingPermission,
+  SCREEN_RECORDING_HELP,
 } from "@/lib";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -77,7 +81,6 @@ export const useChatCompletion = (
   const currentRequestIdRef = useRef<string | null>(null);
   const isProcessingScreenshotRef = useRef(false);
   const screenshotConfigRef = useRef(screenshotConfiguration);
-  const hasCheckedPermissionRef = useRef(false);
   const screenshotInitiatedByThisContext = useRef(false);
 
   useEffect(() => {
@@ -180,10 +183,11 @@ export const useChatCompletion = (
       try {
         // auto-attach-to-every-request feature removed — screenshots will only be captured when explicitly requested (screenshot button / shortcut).
         // Prepare message history for the AI
-        const messageHistory = (messages?.messages || []).map((msg) => ({
-          role: msg.role,
-          content: msg.content,
-        }));
+        const messageHistory = buildBudgetedHistory(
+          messages?.messages || [],
+          getConversationSettings().historyBudgetTokens,
+          input
+        ).messages;
 
 
       // Extract both images and audio from attached files
@@ -258,6 +262,7 @@ export const useChatCompletion = (
             imagesBase64,
             audioBase64,
             signal,
+            requestId,
           })) {
             // Only update if this is still the current request
             if (currentRequestIdRef.current !== requestId) {
@@ -337,40 +342,16 @@ export const useChatCompletion = (
             timestamp: timestamp + MESSAGE_ID_OFFSET,
           };
 
-          const newMessages = [
-            ...(messages?.messages || []),
-            userMsg,
-            assistantMsg,
-          ];
-
-          // Get existing conversation if updating
-          let existingConversation = null;
-          if (conversationId) {
-            try {
-              existingConversation = await getConversationById(conversationId);
-            } catch (error) {
-              console.error("Failed to get existing conversation:", error);
-            }
-          }
-
-          const title =
-            existingConversation?.title ||
-            messages?.title ||
-            generateConversationTitle(input);
-
-          const conversation: ChatConversation = {
-            id: conversationId,
-            title,
-            messages: newMessages,
-            createdAt:
-              existingConversation?.createdAt ||
-              messages?.createdAt ||
-              timestamp,
-            updatedAt: timestamp,
-          };
-
           try {
-            await saveConversation(conversation);
+            // Append-only: never rewrites earlier turns, even if `messages` is stale.
+            await appendMessages(
+              {
+                id: conversationId,
+                title: messages?.title || generateConversationTitle(input),
+                createdAt: messages?.createdAt || timestamp,
+              },
+              [userMsg, assistantMsg]
+            );
 
             // Reload conversation from database to ensure consistency
             const updatedConversation = await getConversationById(
@@ -594,37 +575,11 @@ export const useChatCompletion = (
     setIsScreenshotLoading(true);
 
     try {
-      // Check screen recording permission on macOS
-      const platform = navigator.platform.toLowerCase();
-      if (platform.includes("mac") && !hasCheckedPermissionRef.current) {
-        const {
-          checkScreenRecordingPermission,
-          requestScreenRecordingPermission,
-        } = await import("tauri-plugin-macos-permissions-api");
-
-        const hasPermission = await checkScreenRecordingPermission();
-
-        if (!hasPermission) {
-          // Request permission
-          await requestScreenRecordingPermission();
-
-          // Wait a moment and check again
-          await new Promise((resolve) => setTimeout(resolve, 2000));
-
-          const hasPermissionNow = await checkScreenRecordingPermission();
-
-          if (!hasPermissionNow) {
-            setState((prev) => ({
-              ...prev,
-              error:
-                "Screen Recording permission required. Please enable it by going to System Settings > Privacy & Security > Screen & System Audio Recording. If you don't see Runningbord in the list, click the '+' button to add it. If it's already listed, make sure it's enabled. Then restart the app.",
-            }));
-            setIsScreenshotLoading(false);
-            screenshotInitiatedByThisContext.current = false;
-            return;
-          }
-        }
-        hasCheckedPermissionRef.current = true;
+      if (!(await ensureScreenRecordingPermission())) {
+        setState((prev) => ({ ...prev, error: SCREEN_RECORDING_HELP }));
+        setIsScreenshotLoading(false);
+        screenshotInitiatedByThisContext.current = false;
+        return;
       }
 
       if (config.enabled) {
@@ -673,52 +628,47 @@ export const useChatCompletion = (
     }
   }, [handleScreenshotSubmit, hasActiveLicense]);
 
+  const processSelectionRef = useRef<((base64: string) => Promise<void>) | null>(null);
+  processSelectionRef.current = async (base64: string) => {
+    const config = screenshotConfigRef.current;
+    try {
+      if (config.mode === "auto") {
+        await handleScreenshotSubmit(base64, config.autoPrompt);
+      } else if (config.mode === "manual") {
+        await handleScreenshotSubmit(base64);
+      }
+    } catch (error) {
+      console.error("Error processing selection:", error);
+    } finally {
+      setIsScreenshotLoading(false);
+      screenshotInitiatedByThisContext.current = false;
+      setTimeout(() => {
+        isProcessingScreenshotRef.current = false;
+      }, 100);
+    }
+  };
+
+  // Subscribe once and dispatch through a ref so an unresolved listen() can't
+  // outlive cleanup and fire with stale conversation state.
   useEffect(() => {
-    let unlisten: any;
+    let cancelled = false;
+    let unlisten: (() => void) | undefined;
 
-    const setupListener = async () => {
-      unlisten = await listen("captured-selection", async (event: any) => {
-        // Only process if this context initiated the screenshot
-        if (!screenshotInitiatedByThisContext.current) {
-          return;
-        }
-
-        if (isProcessingScreenshotRef.current) {
-          return;
-        }
-
-        isProcessingScreenshotRef.current = true;
-        const base64 = event.payload;
-        const config = screenshotConfigRef.current;
-
-        try {
-          if (config.mode === "auto") {
-            // Auto mode: Submit directly to AI with the configured prompt
-            await handleScreenshotSubmit(base64 as string, config.autoPrompt);
-          } else if (config.mode === "manual") {
-            // Manual mode: Add to attached files without prompt
-            await handleScreenshotSubmit(base64 as string);
-          }
-        } catch (error) {
-          console.error("Error processing selection:", error);
-        } finally {
-          setIsScreenshotLoading(false);
-          screenshotInitiatedByThisContext.current = false;
-          setTimeout(() => {
-            isProcessingScreenshotRef.current = false;
-          }, 100);
-        }
-      });
-    };
-
-    setupListener();
+    listen<string>("captured-selection", (event) => {
+      if (!screenshotInitiatedByThisContext.current) return;
+      if (isProcessingScreenshotRef.current) return;
+      isProcessingScreenshotRef.current = true;
+      void processSelectionRef.current?.(event.payload);
+    }).then((fn) => {
+      if (cancelled) fn();
+      else unlisten = fn;
+    });
 
     return () => {
-      if (unlisten) {
-        unlisten();
-      }
+      cancelled = true;
+      unlisten?.();
     };
-  }, [handleScreenshotSubmit]);
+  }, []);
 
   useEffect(() => {
     const unlisten = listen("capture-closed", () => {

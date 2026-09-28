@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use std::env;
 use std::fs;
 use std::path::PathBuf;
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Manager};
 use tauri_plugin_machine_uid::MachineUidExt;
 
 fn get_app_endpoint() -> Result<String, String> {
@@ -477,9 +477,69 @@ async fn perform_user_audio_transcription(
     Ok(body_text)
 }
 
+#[derive(Clone, Serialize)]
+#[serde(tag = "event", content = "data", rename_all = "camelCase")]
+pub enum ChatStreamEvent {
+    Chunk(String),
+    Done,
+}
+
+static ACTIVE_CHAT_STREAMS: once_cell::sync::Lazy<
+    std::sync::Mutex<std::collections::HashMap<String, tokio::task::AbortHandle>>,
+> = once_cell::sync::Lazy::new(Default::default);
+
+/// Streams a hosted-API chat completion over a per-request channel, so chunks
+/// from overlapping requests can never mix. `chat_stream_cancel` aborts the
+/// underlying HTTP request.
 #[tauri::command]
 pub async fn chat_stream_response(
     app: AppHandle,
+    request_id: String,
+    on_event: tauri::ipc::Channel<ChatStreamEvent>,
+    user_message: String,
+    system_prompt: Option<String>,
+    image_base64: Option<serde_json::Value>,
+    audio_base64: Option<String>,
+    history: Option<String>,
+) -> Result<String, String> {
+    let task = tokio::spawn(stream_chat(
+        app,
+        on_event,
+        user_message,
+        system_prompt,
+        image_base64,
+        audio_base64,
+        history,
+    ));
+    if let Ok(mut active) = ACTIVE_CHAT_STREAMS.lock() {
+        active.insert(request_id.clone(), task.abort_handle());
+    }
+    let result = task.await;
+    if let Ok(mut active) = ACTIVE_CHAT_STREAMS.lock() {
+        active.remove(&request_id);
+    }
+    match result {
+        Ok(result) => result,
+        Err(e) if e.is_cancelled() => Err("cancelled".to_string()),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+#[tauri::command]
+pub async fn chat_stream_cancel(request_id: String) -> Result<(), String> {
+    if let Some(handle) = ACTIVE_CHAT_STREAMS
+        .lock()
+        .map_err(|e| e.to_string())?
+        .remove(&request_id)
+    {
+        handle.abort();
+    }
+    Ok(())
+}
+
+async fn stream_chat(
+    app: AppHandle,
+    on_event: tauri::ipc::Channel<ChatStreamEvent>,
     user_message: String,
     system_prompt: Option<String>,
     image_base64: Option<serde_json::Value>,
@@ -557,11 +617,12 @@ pub async fn chat_stream_response(
     }
 
     // Add audio content if provided
+    // System audio is captured as OGG/Opus (see system_audio.rs).
     if let Some(audio_data) = audio_base64 {
         user_content.push(serde_json::json!({
             "type": "audio",
             "audio": {
-                "url": format!("data:audio/wav;base64,{}", audio_data)
+                "url": format!("data:audio/ogg;base64,{}", audio_data)
             }
         }));
     }
@@ -660,7 +721,7 @@ pub async fn chat_stream_response(
     let mut usage: Option<serde_json::Value> = None;
     let mut stream_started = false;
 
-    while let Some(chunk) = stream.next().await {
+    'read: while let Some(chunk) = stream.next().await {
         match chunk {
             Ok(bytes) => {
                 let chunk_str = String::from_utf8_lossy(&bytes);
@@ -678,7 +739,7 @@ pub async fn chat_stream_response(
                         let json_str = trimmed_line.strip_prefix("data: ").unwrap_or("");
 
                         if json_str == "[DONE]" {
-                            break;
+                            break 'read;
                         }
 
                         if !json_str.is_empty() {
@@ -702,7 +763,9 @@ pub async fn chat_stream_response(
                                             {
                                                 full_response.push_str(content);
                                                 // Emit just the content to frontend
-                                                let _ = app.emit("chat_stream_chunk", content);
+                                                let _ = on_event.send(ChatStreamEvent::Chunk(
+                                                    content.to_string(),
+                                                ));
                                                 stream_started = true;
                                             }
                                         }
@@ -734,8 +797,7 @@ pub async fn chat_stream_response(
         }
     }
 
-    // Emit completion event
-    let _ = app.emit("chat_stream_complete", &full_response);
+    let _ = on_event.send(ChatStreamEvent::Done);
 
     if stream_started && !full_response.is_empty() {
         tauri::async_runtime::spawn({

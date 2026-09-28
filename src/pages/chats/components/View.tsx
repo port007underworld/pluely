@@ -47,7 +47,7 @@ const View = () => {
     handleDownload,
     isDownloaded,
     isAttached,
-  } = useHistory();
+  } = useHistory({ loadList: false });
 
   const completion = useChatCompletion(
     conversationId as string,

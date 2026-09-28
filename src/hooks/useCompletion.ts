@@ -8,7 +8,7 @@ import {
   estimateBase64Bytes,
   estimateUtf8Bytes,
   fetchAIResponse,
-  saveConversation,
+  appendMessages,
   getConversationById,
   generateConversationTitle,
   shouldUseRunningbordAPI,
@@ -18,6 +18,14 @@ import {
   generateRequestId,
   getResponseSettings,
   safeLocalStorage,
+  captureMeetingAudio,
+  aiProviderAcceptsAudio,
+  buildBudgetedHistory,
+  getConversationSettings,
+  textToBase64,
+  base64ToText,
+  ensureScreenRecordingPermission,
+  SCREEN_RECORDING_HELP,
 } from "@/lib";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -56,6 +64,12 @@ interface CompletionState {
   conversationHistory: ChatMessage[];
 }
 
+interface ContextInfo {
+  sentMessages: number;
+  totalMessages: number;
+  estimatedTokens: number;
+}
+
 interface ShortcutRequestContext {
   triggerStartedAt: number;
   triggerSource: "fullscreen" | "selection";
@@ -77,6 +91,8 @@ export const useCompletion = () => {
     setSystemAudioDaemonConfig,
     modelSpeed,
     setModelSpeed,
+    allSttProviders,
+    selectedSttProvider,
   } = useApp();
 
   // Whether a slow model is configured for the current provider
@@ -117,10 +133,11 @@ export const useCompletion = () => {
   const [isFilesPopoverOpen, setIsFilesPopoverOpen] = useState(false);
   const [isScreenshotLoading, setIsScreenshotLoading] = useState(false);
   const [keepEngaged, setKeepEngaged] = useState(false);
+  const [audioNotice, setAudioNotice] = useState<string | null>(null);
+  const [idleResetNotice, setIdleResetNotice] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const isProcessingScreenshotRef = useRef(false);
   const screenshotConfigRef = useRef(screenshotConfiguration);
-  const hasCheckedPermissionRef = useRef(false);
   const screenshotInitiatedByThisContext = useRef(false);
 
   const { resizeWindow } = useWindowResize();
@@ -198,20 +215,69 @@ export const useCompletion = () => {
     setState((prev) => ({ ...prev, attachedFiles: [] }));
   }, []);
 
-    const saveCurrentConversation = useCallback(
+  // Source of truth for the active conversation. Requests and saves read these
+  // refs instead of render-time closures, which could be one turn behind.
+  const conversationIdRef = useRef<string | null>(null);
+  const historyRef = useRef<ChatMessage[]>([]);
+
+  const setConversation = useCallback(
+    (id: string | null, history: ChatMessage[]) => {
+      conversationIdRef.current = id;
+      historyRef.current = history;
+      setState((prev) => ({
+        ...prev,
+        currentConversationId: id,
+        conversationHistory: history,
+      }));
+    },
+    []
+  );
+
+  const lastActivityRef = useRef(Date.now());
+  const [contextInfo, setContextInfo] = useState<ContextInfo | null>(null);
+
+  // Called at the start of every request: returns the history to send, after
+  // starting a fresh conversation if the current one has gone idle.
+  const buildRequestHistory = useCallback((currentMessage: string) => {
+    const { idleResetMinutes, historyBudgetTokens } = getConversationSettings();
+    const idleMs = Date.now() - lastActivityRef.current;
+    if (
+      idleResetMinutes > 0 &&
+      conversationIdRef.current !== null &&
+      idleMs > idleResetMinutes * 60_000
+    ) {
+      setConversation(null, []);
+      setIdleResetNotice(
+        `Started a new conversation after ${Math.round(idleMs / 60_000)} min of inactivity.`
+      );
+    } else {
+      setIdleResetNotice(null);
+    }
+    lastActivityRef.current = Date.now();
+
+    const built = buildBudgetedHistory(historyRef.current, historyBudgetTokens, currentMessage);
+    setContextInfo({
+      sentMessages: built.sentMessages,
+      totalMessages: built.totalMessages,
+      estimatedTokens: built.estimatedTokens,
+    });
+    return built.messages;
+  }, [setConversation]);
+
+  const saveCurrentConversation = useCallback(
     async (
       userMessage: string,
       assistantResponse: string,
       _attachedFiles: AttachedFile[]
     ) => {
-      // Validate inputs
       if (!userMessage || !assistantResponse) {
         console.error("Cannot save conversation: missing message content");
         return;
       }
 
+      const isNew = conversationIdRef.current === null;
       const conversationId =
-        state.currentConversationId || generateConversationId("chat");
+        conversationIdRef.current ?? generateConversationId("chat");
       const timestamp = Date.now();
 
       const userMsg: ChatMessage = {
@@ -228,54 +294,35 @@ export const useCompletion = () => {
         timestamp: timestamp + MESSAGE_ID_OFFSET,
       };
 
-      const newMessages = [...state.conversationHistory, userMsg, assistantMsg];
-
-      // Get existing conversation if updating
-      let existingConversation = null;
-      if (state.currentConversationId) {
-        try {
-          existingConversation = await getConversationById(
-            state.currentConversationId
-          );
-        } catch (error) {
-          console.error("Failed to get existing conversation:", error);
-        }
-      }
-
-      const title =
-        state.conversationHistory.length === 0
-          ? generateConversationTitle(userMessage)
-          : existingConversation?.title ||
-            generateConversationTitle(userMessage);
-
-      const conversation: ChatConversation = {
-        id: conversationId,
-        title,
-        messages: newMessages,
-        createdAt: existingConversation?.createdAt || timestamp,
-        updatedAt: timestamp,
-      };
+      lastActivityRef.current = Date.now();
+      // Update memory first so a shortcut pressed while the DB write is still
+      // running already sees this turn.
+      setConversation(conversationId, [
+        ...historyRef.current,
+        userMsg,
+        assistantMsg,
+      ]);
 
       try {
-        await saveConversation(conversation);
-
-        setState((prev) => ({
-          ...prev,
-          currentConversationId: conversationId,
-          conversationHistory: newMessages,
-        }));
+        await appendMessages(
+          {
+            id: conversationId,
+            title: isNew ? generateConversationTitle(userMessage) : "",
+            createdAt: timestamp,
+          },
+          [userMsg, assistantMsg]
+        );
       } catch (error) {
         console.error("Failed to save conversation:", error);
-        // Show error to user
         setState((prev) => ({
           ...prev,
           error: "Failed to save conversation. Please try again.",
         }));
       }
     },
-    [state.currentConversationId, state.conversationHistory]
+    [setConversation]
   );
-  
+
   const submit = useCallback(
     async (speechText?: string) => {
       const input = speechText || state.input;
@@ -293,6 +340,12 @@ export const useCompletion = () => {
       const audioForRequest = state.attachedFiles
         .filter((file) => file.type.startsWith("audio/"))
         .map((file) => file.base64)[0] || ""; // Grab the first audio file
+
+      const textContext = state.attachedFiles
+        .filter((file) => file.type === "text/plain")
+        .map((file) => base64ToText(file.base64))
+        .join("\n\n");
+      const messageForRequest = textContext ? `${input}\n\n${textContext}` : input;
 
       if (speechText) {
         setState((prev) => ({
@@ -312,10 +365,7 @@ export const useCompletion = () => {
       const signal = abortControllerRef.current.signal;
 
       try {
-        const messageHistory = state.conversationHistory.map((msg) => ({
-          role: msg.role,
-          content: msg.content,
-        }));
+        const messageHistory = buildRequestHistory(messageForRequest);
 
         const useRunningbordAPI = await shouldUseRunningbordAPI();
         if (!selectedAIProvider.provider && !useRunningbordAPI) {
@@ -353,10 +403,11 @@ export const useCompletion = () => {
             selectedProvider: getEffectiveProvider(),
             systemPrompt: systemPrompt || undefined,
             history: messageHistory,
-            userMessage: input,
+            userMessage: messageForRequest,
             imagesBase64: imagesForRequest, // Use frozen constant
             audioBase64: audioForRequest,   // Use frozen constant
             signal,
+            requestId,
           })) {
             if (currentRequestIdRef.current !== requestId || signal.aborted) {
               return;
@@ -392,7 +443,7 @@ export const useCompletion = () => {
         if (fullResponse) {
           // Pass the captured files to the save function
           await saveCurrentConversation(
-            input,
+            messageForRequest,
             fullResponse,
             state.attachedFiles
           );
@@ -417,7 +468,7 @@ export const useCompletion = () => {
     [
       state.input,
       state.attachedFiles, // Added dependency
-      state.conversationHistory,
+      buildRequestHistory,
       selectedAIProvider,
       allAiProviders,
       systemPrompt,
@@ -465,30 +516,40 @@ export const useCompletion = () => {
   // Note: saveConversation, getConversationById, and generateConversationTitle
   // are now imported from lib/database/chat-history.action.ts
 
-  const loadConversation = useCallback((conversation: ChatConversation) => {
-    setState((prev) => ({
-      ...prev,
-      currentConversationId: conversation.id,
-      conversationHistory: conversation.messages,
-      input: "",
-      response: "",
-      error: null,
-      isLoading: false,
-    }));
-  }, []);
+  // Switching conversations cancels any in-flight answer, which would otherwise
+  // be saved into the conversation being switched to.
+  const loadConversation = useCallback(
+    (conversation: ChatConversation) => {
+      cancel();
+      lastActivityRef.current = Date.now();
+      setIdleResetNotice(null);
+      setContextInfo(null);
+      setConversation(conversation.id, conversation.messages);
+      setState((prev) => ({
+        ...prev,
+        input: "",
+        response: "",
+        error: null,
+        isLoading: false,
+      }));
+    },
+    [cancel, setConversation]
+  );
 
   const startNewConversation = useCallback(() => {
+    cancel();
+    setIdleResetNotice(null);
+    setContextInfo(null);
+    setConversation(null, []);
     setState((prev) => ({
       ...prev,
-      currentConversationId: null,
-      conversationHistory: [],
       input: "",
       response: "",
       error: null,
       isLoading: false,
       attachedFiles: [],
     }));
-  }, []);
+  }, [cancel, setConversation]);
 
 
 
@@ -639,7 +700,9 @@ export const useCompletion = () => {
           currentRequestIdRef.current = requestId;
           const requestStartedAt = performance.now();
           let firstChunkAt: number | null = null;
-          let promptForRequest = prompt;
+          const promptForRequest = audioTranscription?.trim()
+            ? `${prompt}\n\n${audioTranscription}`
+            : prompt;
 
           // Cancel any existing request
           if (abortControllerRef.current) {
@@ -650,11 +713,7 @@ export const useCompletion = () => {
           const signal = abortControllerRef.current.signal;
 
           try {
-            // Prepare message history for the AI
-            const messageHistory = state.conversationHistory.map((msg) => ({
-              role: msg.role,
-              content: msg.content,
-            }));
+            const messageHistory = buildRequestHistory(promptForRequest);
 
             let fullResponse = "";
 
@@ -688,11 +747,6 @@ export const useCompletion = () => {
               response: "",
             }));
 
-            // If we have audio transcription from the attached audio, append it to the prompt
-            if (audioTranscription && audioTranscription.trim()) {
-              promptForRequest = `${prompt}\n\n[Attached audio transcription]: ${audioTranscription}`;
-            }
-
             // Use the fetchAIResponse function with image and signal
             for await (const chunk of fetchAIResponse({
               provider: useRunningbordAPI ? undefined : provider,
@@ -702,6 +756,8 @@ export const useCompletion = () => {
               userMessage: promptForRequest,
               imagesBase64: [base64],
               audioBase64: audioBase64,
+              signal,
+              requestId,
             })) {
               if (firstChunkAt === null && chunk) {
                 firstChunkAt = performance.now();
@@ -734,7 +790,7 @@ export const useCompletion = () => {
             // Save the conversation after successful completion
             if (fullResponse) {
               const filesToSave = audioAttachedFile ? [attachedFile, audioAttachedFile] : [attachedFile];
-              await saveCurrentConversation(prompt, fullResponse, filesToSave);
+              await saveCurrentConversation(promptForRequest, fullResponse, filesToSave);
               // Clear input after saving
               setState((prev) => ({
                 ...prev,
@@ -793,11 +849,22 @@ export const useCompletion = () => {
             size: base64.length,
           };
 
+          const extraFiles: AttachedFile[] = [];
+          if (audioAttachedFile) extraFiles.push(audioAttachedFile);
+          if (audioTranscription?.trim()) {
+            const transcriptBase64 = textToBase64(audioTranscription);
+            extraFiles.push({
+              id: Date.now().toString() + "_transcript",
+              name: `meeting_transcript_${Date.now()}.txt`,
+              type: "text/plain",
+              base64: transcriptBase64,
+              size: transcriptBase64.length,
+            });
+          }
+
           setState((prev) => ({
             ...prev,
-            attachedFiles: audioAttachedFile
-              ? [...prev.attachedFiles, attachedFile, audioAttachedFile]
-              : [...prev.attachedFiles, attachedFile],
+            attachedFiles: [...prev.attachedFiles, attachedFile, ...extraFiles],
           }));
         }
       } catch (error) {
@@ -814,7 +881,7 @@ export const useCompletion = () => {
     },
     [
       state.attachedFiles.length,
-      state.conversationHistory,
+      buildRequestHistory,
       selectedAIProvider,
       allAiProviders,
       systemPrompt,
@@ -956,6 +1023,32 @@ export const useCompletion = () => {
     return () => window.removeEventListener("keydown", handleToggleShortcut);
   }, [isPopoverOpen]);
 
+  const captureShortcutAudio = useCallback(async () => {
+    if (!systemAudioDaemonConfig.enabled) {
+      setAudioNotice(null);
+      return undefined;
+    }
+    const capture = await captureMeetingAudio({
+      windowSeconds: systemAudioDaemonConfig.bufferSeconds,
+      sttProvider: allSttProviders.find(
+        (p) => p.id === selectedSttProvider.provider
+      ),
+      sttSelection: selectedSttProvider,
+      aiAcceptsAudio: await aiProviderAcceptsAudio(
+        allAiProviders.find((p) => p.id === selectedAIProvider.provider)
+      ),
+    });
+    setAudioNotice(capture.warning ?? null);
+    return capture;
+  }, [
+    systemAudioDaemonConfig.enabled,
+    systemAudioDaemonConfig.bufferSeconds,
+    allSttProviders,
+    selectedSttProvider,
+    allAiProviders,
+    selectedAIProvider.provider,
+  ]);
+
   const captureScreenshot = useCallback(async () => {
     if (!handleScreenshotSubmit) return;
 
@@ -965,37 +1058,11 @@ export const useCompletion = () => {
     setIsScreenshotLoading(true);
 
     try {
-      // Check screen recording permission on macOS
-      const platform = navigator.platform.toLowerCase();
-      if (platform.includes("mac") && !hasCheckedPermissionRef.current) {
-        const {
-          checkScreenRecordingPermission,
-          requestScreenRecordingPermission,
-        } = await import("tauri-plugin-macos-permissions-api");
-
-        const hasPermission = await checkScreenRecordingPermission();
-
-        if (!hasPermission) {
-          // Request permission
-          await requestScreenRecordingPermission();
-
-          // Wait a moment and check again
-          await new Promise((resolve) => setTimeout(resolve, 2000));
-
-          const hasPermissionNow = await checkScreenRecordingPermission();
-
-          if (!hasPermissionNow) {
-            setState((prev) => ({
-              ...prev,
-              error:
-                "Screen Recording permission required. Please enable it by going to System Settings > Privacy & Security > Screen & System Audio Recording. If you don't see Runningbord in the list, click the '+' button to add it. If it's already listed, make sure it's enabled. Then restart the app.",
-            }));
-            setIsScreenshotLoading(false);
-            screenshotInitiatedByThisContext.current = false;
-            return;
-          }
-        }
-        hasCheckedPermissionRef.current = true;
+      if (!(await ensureScreenRecordingPermission())) {
+        setState((prev) => ({ ...prev, error: SCREEN_RECORDING_HELP }));
+        setIsScreenshotLoading(false);
+        screenshotInitiatedByThisContext.current = false;
+        return;
       }
 
       if (config.enabled) {
@@ -1007,37 +1074,29 @@ export const useCompletion = () => {
         });
         const screenshotCaptureMs = performance.now() - screenshotCaptureStart;
 
-        // Grab system audio if daemon is on
-        let audioBase64: string | undefined;
-        let audioFetchMs: number | undefined;
-        if (systemAudioDaemonConfig.enabled) {
-          try {
-            const audioFetchStart = performance.now();
-            audioBase64 = await invoke<string>("system_audio_get_recent_base64");
-            audioFetchMs = performance.now() - audioFetchStart;
-          } catch (e) {
-            console.warn("Could not get system audio:", e);
-          }
-        }
+        const audio = await captureShortcutAudio();
 
         if (config.mode === "auto") {
-          // Auto mode: Submit directly to AI with the configured prompt
           await handleScreenshotSubmit(
             base64 as string,
             config.autoPrompt,
-            audioBase64,
-            undefined,
+            audio?.audioBase64,
+            audio?.transcript,
             {
               triggerStartedAt,
               triggerSource: "fullscreen",
               screenshotCaptureMs,
-              audioFetchMs,
+              audioFetchMs: audio?.fetchMs,
               customPromptUsed: false,
             }
           );
         } else if (config.mode === "manual") {
-          // Manual mode: Add to attached files without prompt
-          await handleScreenshotSubmit(base64 as string, undefined, audioBase64);
+          await handleScreenshotSubmit(
+            base64 as string,
+            undefined,
+            audio?.audioBase64,
+            audio?.transcript
+          );
         }
         screenshotInitiatedByThisContext.current = false;
       } else {
@@ -1057,78 +1116,69 @@ export const useCompletion = () => {
         setIsScreenshotLoading(false);
       }
     }
-  }, [handleScreenshotSubmit, systemAudioDaemonConfig.enabled]);
+  }, [handleScreenshotSubmit, captureShortcutAudio]);
 
+  const processSelectionRef = useRef<((base64: string) => Promise<void>) | null>(null);
+  processSelectionRef.current = async (base64: string) => {
+    const config = screenshotConfigRef.current;
+    const triggerStartedAt = performance.now();
+
+    try {
+      const audio = await captureShortcutAudio();
+
+      if (config.mode === "auto") {
+        await handleScreenshotSubmit(
+          base64,
+          config.autoPrompt,
+          audio?.audioBase64,
+          audio?.transcript,
+          {
+            triggerStartedAt,
+            triggerSource: "selection",
+            audioFetchMs: audio?.fetchMs,
+            customPromptUsed: false,
+          }
+        );
+      } else if (config.mode === "manual") {
+        await handleScreenshotSubmit(
+          base64,
+          undefined,
+          audio?.audioBase64,
+          audio?.transcript
+        );
+      }
+    } catch (error) {
+      console.error("Error processing selection:", error);
+    } finally {
+      setIsScreenshotLoading(false);
+      screenshotInitiatedByThisContext.current = false;
+      setTimeout(() => {
+        isProcessingScreenshotRef.current = false;
+      }, 100);
+    }
+  };
+
+  // Subscribe once and dispatch through a ref: re-subscribing per render let an
+  // unresolved listen() outlive cleanup and fire with stale conversation state.
   useEffect(() => {
-    let unlisten: any;
+    let cancelled = false;
+    let unlisten: (() => void) | undefined;
 
-    const setupListener = async () => {
-      unlisten = await listen("captured-selection", async (event: any) => {
-        if (!screenshotInitiatedByThisContext.current) {
-          return;
-        }
-
-        if (isProcessingScreenshotRef.current) {
-          return;
-        }
-
-        isProcessingScreenshotRef.current = true;
-        const base64 = event.payload;
-        const config = screenshotConfigRef.current;
-        const triggerStartedAt = performance.now();
-
-        try {
-          // Grab system audio if daemon is on
-          let audioBase64: string | undefined;
-          let audioFetchMs: number | undefined;
-          if (systemAudioDaemonConfig.enabled) {
-            try {
-              const audioFetchStart = performance.now();
-              audioBase64 = await invoke<string>("system_audio_get_recent_base64");
-              audioFetchMs = performance.now() - audioFetchStart;
-            } catch (e) {
-              console.warn("Could not get system audio:", e);
-            }
-          }
-
-          if (config.mode === "auto") {
-            // Auto mode: Submit directly to AI with the configured prompt
-            await handleScreenshotSubmit(
-              base64 as string,
-              config.autoPrompt,
-              audioBase64,
-              undefined,
-              {
-                triggerStartedAt,
-                triggerSource: "selection",
-                audioFetchMs,
-                customPromptUsed: false,
-              }
-            );
-          } else if (config.mode === "manual") {
-            // Manual mode: Add to attached files without prompt
-            await handleScreenshotSubmit(base64 as string, undefined, audioBase64);
-          }
-        } catch (error) {
-          console.error("Error processing selection:", error);
-        } finally {
-          setIsScreenshotLoading(false);
-          screenshotInitiatedByThisContext.current = false;
-          setTimeout(() => {
-            isProcessingScreenshotRef.current = false;
-          }, 100);
-        }
-      });
-    };
-
-    setupListener();
+    listen<string>("captured-selection", (event) => {
+      if (!screenshotInitiatedByThisContext.current) return;
+      if (isProcessingScreenshotRef.current) return;
+      isProcessingScreenshotRef.current = true;
+      void processSelectionRef.current?.(event.payload);
+    }).then((fn) => {
+      if (cancelled) fn();
+      else unlisten = fn;
+    });
 
     return () => {
-      if (unlisten) {
-        unlisten();
-      }
+      cancelled = true;
+      unlisten?.();
     };
-  }, [handleScreenshotSubmit, systemAudioDaemonConfig.enabled]);
+  }, []);
 
   useEffect(() => {    const unlisten = listen("capture-closed", () => {
       setIsScreenshotLoading(false);
@@ -1168,8 +1218,13 @@ export const useCompletion = () => {
         );
       }
     );
+    globalShortcuts.registerCustomShortcutCallback("new_conversation", () => {
+      startNewConversation();
+      setKeepEngaged(false);
+    });
     return () => {
       globalShortcuts.unregisterCustomShortcutCallback("toggle_system_audio");
+      globalShortcuts.unregisterCustomShortcutCallback("new_conversation");
     };
   }, [
     globalShortcuts.registerInputRef,
@@ -1180,6 +1235,7 @@ export const useCompletion = () => {
     inputRef,
     setSystemAudioDaemonConfig,
     systemAudioDaemonConfig,
+    startNewConversation,
   ]);
 
   return {
@@ -1188,6 +1244,9 @@ export const useCompletion = () => {
     response: state.response,
     setResponse,
     isLoading: state.isLoading,
+    audioNotice,
+    idleResetNotice,
+    contextInfo,
     error: state.error,
     attachedFiles: state.attachedFiles,
     addFile,

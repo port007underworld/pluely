@@ -36,6 +36,16 @@ export interface UseCompletionReturn {
   isLoading: boolean;
   /** Current error message, null if no error */
   error: string | null;
+  /** Non-fatal problem with the last meeting-audio capture (silence, missing model...). */
+  audioNotice: string | null;
+  /** Set when the overlay started a fresh conversation because the last one went idle. */
+  idleResetNotice: string | null;
+  /** What the last request sent as history. */
+  contextInfo: {
+    sentMessages: number;
+    totalMessages: number;
+    estimatedTokens: number;
+  } | null;
 
   // File attachment management
   /** Array of currently attached files */

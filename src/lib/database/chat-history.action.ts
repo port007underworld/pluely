@@ -41,25 +41,6 @@ function safeJsonParse<T>(jsonString: string | null, fallback: T): T {
 }
 
 /**
- * Validate conversation data
- */
-function validateConversation(conversation: ChatConversation): boolean {
-  if (!conversation.id || typeof conversation.id !== "string") {
-    console.error("Invalid conversation: missing or invalid id");
-    return false;
-  }
-  if (!conversation.title || typeof conversation.title !== "string") {
-    console.error("Invalid conversation: missing or invalid title");
-    return false;
-  }
-  if (!Array.isArray(conversation.messages)) {
-    console.error("Invalid conversation: messages is not an array");
-    return false;
-  }
-  return true;
-}
-
-/**
  * Validate message data
  */
 function validateMessage(message: any): boolean {
@@ -86,116 +67,26 @@ function validateMessage(message: any): boolean {
 }
 
 /**
- * Create a new conversation with transaction safety
+ * Conversation list for the history page: metadata and message counts only.
+ * Messages are loaded per conversation with getConversationById.
  */
-export async function createConversation(
-  conversation: ChatConversation
-): Promise<ChatConversation> {
-  if (!validateConversation(conversation)) {
-    throw new Error("Invalid conversation data");
-  }
-
+export async function listConversations(): Promise<ChatConversation[]> {
   const db = await getDatabase();
-
-  try {
-    // Insert conversation
-    await db.execute(
-      "INSERT INTO conversations (id, title, created_at, updated_at) VALUES (?, ?, ?, ?)",
-      [
-        conversation.id,
-        conversation.title,
-        conversation.createdAt || Date.now(),
-        conversation.updatedAt || Date.now(),
-      ]
-    );
-
-    // Insert all messages
-    for (const message of conversation.messages) {
-      if (!validateMessage(message)) {
-        console.warn("Skipping invalid message in conversation creation");
-        continue;
-      }
-
-      const attachedFilesJson = message.attachedFiles
-        ? JSON.stringify(message.attachedFiles)
-        : null;
-
-      await db.execute(
-        "INSERT INTO messages (id, conversation_id, role, content, timestamp, attached_files) VALUES (?, ?, ?, ?, ?, ?)",
-        [
-          message.id,
-          conversation.id,
-          message.role,
-          message.content,
-          message.timestamp,
-          attachedFilesJson,
-        ]
-      );
-    }
-
-    return conversation;
-  } catch (error) {
-    console.error("Failed to create conversation:", error);
-    // Rollback: delete conversation if message insertion failed
-    await db
-      .execute("DELETE FROM conversations WHERE id = ?", [conversation.id])
-      .catch(() => {});
-    throw error;
-  }
-}
-
-/**
- * Get all conversations with messages in a single optimized query
- */
-export async function getAllConversations(): Promise<ChatConversation[]> {
-  const db = await getDatabase();
-
-  try {
-    // Get all conversations
-    const conversations = await db.select<DbConversation[]>(
-      "SELECT * FROM conversations ORDER BY updated_at DESC"
-    );
-
-    if (conversations.length === 0) {
-      return [];
-    }
-
-    // Get all messages for these conversations in one query
-    const conversationIds = conversations.map((c) => c.id);
-    const placeholders = conversationIds.map(() => "?").join(",");
-    const allMessages = await db.select<DbMessage[]>(
-      `SELECT * FROM messages WHERE conversation_id IN (${placeholders}) ORDER BY conversation_id, timestamp ASC`,
-      conversationIds
-    );
-
-    // Group messages by conversation_id
-    const messagesByConversation = new Map<string, DbMessage[]>();
-    for (const msg of allMessages) {
-      if (!messagesByConversation.has(msg.conversation_id)) {
-        messagesByConversation.set(msg.conversation_id, []);
-      }
-      messagesByConversation.get(msg.conversation_id)!.push(msg);
-    }
-
-    // Build result
-    return conversations.map((conv) => ({
-      id: conv.id,
-      title: conv.title,
-      createdAt: conv.created_at,
-      updatedAt: conv.updated_at,
-      messages:
-        messagesByConversation.get(conv.id)?.map((msg) => ({
-          id: msg.id,
-          role: msg.role,
-          content: msg.content,
-          timestamp: msg.timestamp,
-          attachedFiles: safeJsonParse(msg.attached_files, undefined),
-        })) || [],
-    }));
-  } catch (error) {
-    console.error("Failed to get all conversations:", error);
-    throw error;
-  }
+  const rows = await db.select<(DbConversation & { message_count: number })[]>(
+    `SELECT c.id, c.title, c.created_at, c.updated_at, COUNT(m.id) AS message_count
+     FROM conversations c
+     LEFT JOIN messages m ON m.conversation_id = c.id
+     GROUP BY c.id
+     ORDER BY c.updated_at DESC`
+  );
+  return rows.map((row) => ({
+    id: row.id,
+    title: row.title,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    messages: [],
+    messageCount: row.message_count,
+  }));
 }
 
 /**
@@ -249,117 +140,65 @@ export async function getConversationById(
   }
 }
 
-/**
- * Update a conversation with transaction safety
- */
-export async function updateConversation(
-  conversation: ChatConversation
-): Promise<ChatConversation> {
-  if (!validateConversation(conversation)) {
-    throw new Error("Invalid conversation data");
-  }
+// Writes per conversation run strictly in order, so two turns finishing close
+// together can't interleave.
+const writeQueues = new Map<string, Promise<unknown>>();
 
-  const db = await getDatabase();
-
-  try {
-    // Update conversation
-    const updateResult = await db.execute(
-      "UPDATE conversations SET title = ?, updated_at = ? WHERE id = ?",
-      [conversation.title, conversation.updatedAt, conversation.id]
-    );
-
-    if (updateResult.rowsAffected === 0) {
-      throw new Error("Conversation not found");
-    }
-
-    // Get existing messages for backup
-    const existingMessages = await db.select<DbMessage[]>(
-      "SELECT * FROM messages WHERE conversation_id = ?",
-      [conversation.id]
-    );
-
-    // Delete existing messages
-    await db.execute("DELETE FROM messages WHERE conversation_id = ?", [
-      conversation.id,
-    ]);
-
-    // Insert updated messages
-    try {
-      for (const message of conversation.messages) {
-        if (!validateMessage(message)) {
-          console.warn("Skipping invalid message in conversation update");
-          continue;
-        }
-
-        const attachedFilesJson = message.attachedFiles
-          ? JSON.stringify(message.attachedFiles)
-          : null;
-
-        await db.execute(
-          "INSERT INTO messages (id, conversation_id, role, content, timestamp, attached_files) VALUES (?, ?, ?, ?, ?, ?)",
-          [
-            message.id,
-            conversation.id,
-            message.role,
-            message.content,
-            message.timestamp,
-            attachedFilesJson,
-          ]
-        );
-      }
-    } catch (messageError) {
-      // Rollback: restore original messages
-      console.error(
-        "Failed to insert new messages, restoring backup:",
-        messageError
-      );
-      for (const msg of existingMessages) {
-        await db
-          .execute(
-            "INSERT INTO messages (id, conversation_id, role, content, timestamp, attached_files) VALUES (?, ?, ?, ?, ?, ?)",
-            [
-              msg.id,
-              msg.conversation_id,
-              msg.role,
-              msg.content,
-              msg.timestamp,
-              msg.attached_files,
-            ]
-          )
-          .catch(() => {});
-      }
-      throw messageError;
-    }
-
-    return conversation;
-  } catch (error) {
-    console.error("Failed to update conversation:", error);
-    throw error;
-  }
+function enqueueWrite<T>(conversationId: string, task: () => Promise<T>): Promise<T> {
+  const previous = writeQueues.get(conversationId) ?? Promise.resolve();
+  const next = previous.catch(() => {}).then(task);
+  writeQueues.set(conversationId, next);
+  const cleanup = () => {
+    if (writeQueues.get(conversationId) === next) writeQueues.delete(conversationId);
+  };
+  next.then(cleanup, cleanup);
+  return next;
 }
 
 /**
- * Save or update a conversation (upsert operation)
+ * Append messages to a conversation, creating it on first use. Append-only:
+ * existing messages are never rewritten, so a stale in-memory copy can't
+ * delete turns, and re-sending the same message ids is a no-op.
  */
-export async function saveConversation(
-  conversation: ChatConversation
-): Promise<ChatConversation> {
-  if (!validateConversation(conversation)) {
-    throw new Error("Invalid conversation data");
+export async function appendMessages(
+  conversation: { id: string; title: string; createdAt: number },
+  messages: ChatConversation["messages"]
+): Promise<void> {
+  if (!conversation.id || typeof conversation.id !== "string") {
+    throw new Error("Invalid conversation id");
   }
+  const valid = messages.filter(validateMessage);
 
-  try {
-    const existing = await getConversationById(conversation.id);
+  return enqueueWrite(conversation.id, async () => {
+    const db = await getDatabase();
+    const updatedAt = Math.max(Date.now(), ...valid.map((m) => m.timestamp));
 
-    if (existing) {
-      return await updateConversation(conversation);
-    } else {
-      return await createConversation(conversation);
-    }
-  } catch (error) {
-    console.error("Failed to save conversation:", error);
-    throw error;
-  }
+    // The title is only set when the conversation is first created.
+    await db.execute(
+      `INSERT INTO conversations (id, title, created_at, updated_at) VALUES (?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET updated_at = MAX(updated_at, excluded.updated_at)`,
+      [
+        conversation.id,
+        conversation.title || "Untitled conversation",
+        conversation.createdAt,
+        updatedAt,
+      ]
+    );
+
+    if (valid.length === 0) return;
+    const placeholders = valid.map(() => "(?, ?, ?, ?, ?, ?)").join(", ");
+    await db.execute(
+      `INSERT OR IGNORE INTO messages (id, conversation_id, role, content, timestamp, attached_files) VALUES ${placeholders}`,
+      valid.flatMap((message) => [
+        message.id,
+        conversation.id,
+        message.role,
+        message.content,
+        message.timestamp,
+        message.attachedFiles ? JSON.stringify(message.attachedFiles) : null,
+      ])
+    );
+  });
 }
 
 /**
@@ -401,11 +240,20 @@ export async function deleteAllConversations(): Promise<void> {
   }
 }
 
+const MAX_TITLE_LENGTH = 80;
+
 /**
- * Return the user message as the conversation title
+ * First line of the user message, capped (prompts can carry long transcripts).
  */
 export function generateConversationTitle(userMessage: string): string {
-  return userMessage.trim();
+  const firstLine =
+    userMessage
+      .split("\n")
+      .map((line) => line.trim())
+      .find(Boolean) ?? "";
+  return firstLine.length > MAX_TITLE_LENGTH
+    ? `${firstLine.slice(0, MAX_TITLE_LENGTH - 1).trimEnd()}…`
+    : firstLine;
 }
 
 /**

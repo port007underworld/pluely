@@ -6,7 +6,7 @@ import {
   STORAGE_KEYS,
 } from "@/config";
 import { getPlatform, safeLocalStorage, trackAppStart } from "@/lib";
-import { getShortcutsConfig } from "@/lib/storage";
+import { getShortcutsConfig, useTranscriptionConfig } from "@/lib/storage";
 import {
   getCustomizableState,
   setCustomizableState,
@@ -553,6 +553,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
   }, [systemAudioDaemonConfig]);
 
   // Apply system audio daemon to backend (start/stop)
+  const [systemAudioError, setSystemAudioError] = useState<string | null>(null);
   useEffect(() => {
     const apply = async () => {
       try {
@@ -563,12 +564,48 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         } else {
           await invoke("system_audio_stop");
         }
+        setSystemAudioError(null);
       } catch (e) {
-        console.debug("System audio daemon sync failed:", e);
+        console.warn("System audio daemon sync failed:", e);
+        setSystemAudioError(String(e));
       }
     };
     apply();
   }, [systemAudioDaemonConfig.enabled, systemAudioDaemonConfig.bufferSeconds]);
+
+  // The mic buffer follows the system audio daemon, when the user opted in.
+  const [transcriptionConfig] = useTranscriptionConfig();
+  const captureMic =
+    systemAudioDaemonConfig.enabled &&
+    transcriptionConfig.captureMic &&
+    transcriptionConfig.engine !== "raw";
+  useEffect(() => {
+    const command = captureMic
+      ? invoke("mic_audio_start", { bufferSeconds: systemAudioDaemonConfig.bufferSeconds })
+      : invoke("mic_audio_stop");
+    command.catch((e) => console.warn("Microphone capture sync failed:", e));
+  }, [captureMic, systemAudioDaemonConfig.bufferSeconds]);
+
+  // Live background transcription follows the daemon when the local engine is used.
+  const liveTranscription =
+    systemAudioDaemonConfig.enabled &&
+    transcriptionConfig.engine === "local" &&
+    transcriptionConfig.live;
+  useEffect(() => {
+    const command = liveTranscription
+      ? invoke("live_transcript_start", {
+          modelId: transcriptionConfig.localModel,
+          language: transcriptionConfig.language,
+          separateSpeakers: transcriptionConfig.separateSpeakers,
+        })
+      : invoke("live_transcript_stop");
+    command.catch((e) => console.warn("Live transcription sync failed:", e));
+  }, [
+    liveTranscription,
+    transcriptionConfig.localModel,
+    transcriptionConfig.language,
+    transcriptionConfig.separateSpeakers,
+  ]);
 
   // Computed all AI providers
   const allAiProviders: TYPE_PROVIDER[] = [
@@ -730,6 +767,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     setScreenshotConfiguration,
     systemAudioDaemonConfig,
     setSystemAudioDaemonConfig,
+    systemAudioError,
     customizable,
     toggleAppIconVisibility,
     toggleAlwaysOnTop,

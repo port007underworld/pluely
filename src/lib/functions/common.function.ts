@@ -277,3 +277,13 @@ export function getStreamingContent(
   // Return null if no content is found after trying all paths.
   return null;
 }
+
+export function textToBase64(text: string): string {
+  let binary = "";
+  for (const byte of new TextEncoder().encode(text)) binary += String.fromCharCode(byte);
+  return btoa(binary);
+}
+
+export function base64ToText(base64: string): string {
+  return new TextDecoder().decode(Uint8Array.from(atob(base64), (c) => c.charCodeAt(0)));
+}

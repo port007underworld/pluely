@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Merged into Contents/Info.plist by Tauri. Entitlements live in entitlements.plist. -->
+<plist version="1.0">
+<dict>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>Runningbord transcribes your side of a meeting from the microphone when you turn on "Also capture my microphone". Audio is processed on your device unless you choose a cloud transcription provider.</string>
+
+  <key>NSScreenCaptureUsageDescription</key>
+  <string>Runningbord captures a screenshot when you press the screenshot shortcut so the AI can see what you are looking at.</string>
+
+  <key>NSAudioCaptureUsageDescription</key>
+  <string>Runningbord records the last few minutes of your computer's audio (for example, the other people in a meeting) so it can transcribe them when you ask a question.</string>
+</dict>
+</plist>

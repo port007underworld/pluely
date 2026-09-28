@@ -21,6 +21,8 @@ export interface ChatConversation {
   messages: ChatMessage[];
   createdAt: number;
   updatedAt: number;
+  /** Set on list summaries, whose `messages` are not loaded. */
+  messageCount?: number;
 }
 
 export interface CompletionState {

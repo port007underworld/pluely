@@ -9,3 +9,5 @@ export * from "./platform";
 export * from "./analytics";
 export * from "./response-settings.constants";
 export * from "./pipeline-metrics";
+export * from "./request-log";
+export * from "./permissions";
