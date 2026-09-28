@@ -150,6 +150,8 @@ export const TranscriptionSettings = () => {
   const [micStatus, setMicStatus] = useState<{ device?: string; error?: string } | null>(null);
   const [liveStatus, setLiveStatus] = useState<LiveStatus | null>(null);
   const [liveLines, setLiveLines] = useState<LiveSegment[]>([]);
+  // Words of the sentence still being spoken, per source.
+  const [partials, setPartials] = useState<Partial<Record<LiveSegment["source"], string>>>({});
 
   const liveWanted =
     config.engine === "local" && config.live && systemAudioDaemonConfig.enabled;
@@ -181,18 +183,25 @@ export const TranscriptionSettings = () => {
     const timer = setInterval(poll, 2000);
 
     let cancelled = false;
-    let unlisten: (() => void) | undefined;
-    listen<LiveSegment>("live-transcript-segment", ({ payload }) => {
-      setLiveLines((prev) => [...prev.slice(-5), payload]);
-    }).then((fn) => {
-      if (cancelled) fn();
-      else unlisten = fn;
+    const unlisteners: (() => void)[] = [];
+    const subscribe = <T,>(event: string, handler: (payload: T) => void) =>
+      listen<T>(event, ({ payload }) => handler(payload)).then((fn) => {
+        if (cancelled) fn();
+        else unlisteners.push(fn);
+      });
+    subscribe<LiveSegment>("live-transcript-segment", (segment) => {
+      setLiveLines((prev) => [...prev.slice(-5), segment]);
+      setPartials((prev) => ({ ...prev, [segment.source]: undefined }));
     });
+    subscribe<{ source: LiveSegment["source"]; text: string }>(
+      "live-transcript-partial",
+      (partial) => setPartials((prev) => ({ ...prev, [partial.source]: partial.text }))
+    );
     return () => {
       active = false;
       clearInterval(timer);
       cancelled = true;
-      unlisten?.();
+      unlisteners.forEach((fn) => fn());
     };
   }, [liveWanted]);
 
@@ -607,19 +616,32 @@ export const TranscriptionSettings = () => {
                 {liveStatus?.lastError && (
                   <p className="text-[10px] text-destructive">{liveStatus.lastError}</p>
                 )}
-                {liveLines.length === 0 ? (
+                {liveLines.length === 0 && !partials.system && !partials.mic ? (
                   <p className="text-xs text-muted-foreground italic">
                     Lines appear here as people speak.
                   </p>
                 ) : (
-                  liveLines.map((line, i) => (
-                    <p key={`${line.startMs}-${i}`} className="text-xs">
-                      <span className="font-medium text-muted-foreground">
-                        {line.source === "mic" ? "You" : line.speaker ?? "Them"}:
-                      </span>{" "}
-                      {line.text}
-                    </p>
-                  ))
+                  <>
+                    {liveLines.map((line, i) => (
+                      <p key={`${line.startMs}-${i}`} className="text-xs">
+                        <span className="font-medium text-muted-foreground">
+                          {line.source === "mic" ? "You" : line.speaker ?? "Them"}:
+                        </span>{" "}
+                        {line.text}
+                      </p>
+                    ))}
+                    {(["system", "mic"] as const).map(
+                      (source) =>
+                        partials[source] && (
+                          <p key={source} className="text-xs text-muted-foreground italic">
+                            <span className="font-medium">
+                              {source === "mic" ? "You" : "Them"}:
+                            </span>{" "}
+                            {partials[source]}…
+                          </p>
+                        )
+                    )}
+                  </>
                 )}
               </div>
             )}

@@ -351,10 +351,10 @@ pub(crate) fn context_for(
             id
         ));
     }
-    let ctx = WhisperContext::new_with_params(
-        path.to_string_lossy().as_ref(),
-        WhisperContextParameters::default(),
-    )
+    // Flash attention: ~1.3-1.5x faster with identical output (measured on base.en).
+    let mut params = WhisperContextParameters::default();
+    params.flash_attn(true);
+    let ctx = WhisperContext::new_with_params(path.to_string_lossy().as_ref(), params)
     .map_err(|e| format!("Failed to load Whisper model: {}", e))?;
     let ctx = Arc::new(ctx);
     *loaded = Some((id.to_string(), ctx.clone()));
@@ -638,5 +638,72 @@ mod tests {
         assert!(segments
             .iter()
             .all(|s| s.start_offset <= 0.0 && s.end_offset <= 0.1));
+    }
+}
+
+#[cfg(test)]
+mod bench {
+    use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
+
+    fn read_wav(path: &str) -> Vec<f32> {
+        let wav = std::fs::read(path).unwrap();
+        let data = wav.windows(4).position(|w| w == b"data").unwrap() + 8;
+        wav[data..]
+            .chunks_exact(2)
+            .map(|b| i16::from_le_bytes([b[0], b[1]]) as f32 / 32768.0)
+            .collect()
+    }
+
+    fn run(ctx: &WhisperContext, samples: &[f32], audio_ctx: bool) -> (String, std::time::Duration) {
+        let mut state = ctx.create_state().unwrap();
+        let mut p = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
+        p.set_language(Some("en"));
+        p.set_n_threads(8);
+        p.set_no_context(true);
+        p.set_print_progress(false);
+        p.set_print_realtime(false);
+        p.set_print_special(false);
+        p.set_print_timestamps(false);
+        if audio_ctx {
+            let secs = samples.len() as f32 / 16_000.0;
+            p.set_audio_ctx(((secs * 50.0) as i32 + 128).min(1500));
+        }
+        let t = std::time::Instant::now();
+        state.full(p, samples).unwrap();
+        let text = state
+            .as_iter()
+            .map(|s| s.to_str_lossy().unwrap().to_string())
+            .collect::<String>();
+        (text.trim().to_string(), t.elapsed())
+    }
+
+    /// WHISPER_TEST_MODEL=... WHISPER_TEST_WAV=... cargo test --release whisper_speed -- --ignored --nocapture
+    #[test]
+    #[ignore]
+    fn whisper_speed() {
+        let model = std::env::var("WHISPER_TEST_MODEL").unwrap();
+        let jfk = read_wav(&std::env::var("WHISPER_TEST_WAV").unwrap());
+        let short: Vec<f32> = jfk[..16_000 * 3].to_vec();
+        let long: Vec<f32> = jfk.iter().chain(jfk.iter()).copied().collect();
+
+        for flash in [false, true] {
+            let mut cp = WhisperContextParameters::default();
+            cp.flash_attn(flash);
+            let ctx = WhisperContext::new_with_params(&model, cp).unwrap();
+            run(&ctx, &short, false); // warm-up (Metal shader compile)
+            for audio_ctx in [false, true] {
+                if !flash && audio_ctx {
+                    continue;
+                }
+                for (name, s) in [("3s", &short), ("11s", &jfk), ("22s", &long)] {
+                    let (text, t) = run(&ctx, s, audio_ctx);
+                    println!(
+                        "flash={flash:<5} audio_ctx={audio_ctx:<5} {name:>4}: {:>6.0} ms  {}",
+                        t.as_secs_f64() * 1000.0,
+                        &text.chars().take(60).collect::<String>()
+                    );
+                }
+            }
+        }
     }
 }

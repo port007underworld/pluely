@@ -20,19 +20,27 @@ use tauri::{AppHandle, Emitter};
 
 const SAMPLE_RATE: usize = 16_000;
 const FRAME: usize = SAMPLE_RATE / 50; // 20 ms
-/// RMS above this counts as voice activity (roughly -42 dBFS).
+/// Minimum RMS that can count as voice activity (roughly -42 dBFS).
 const SPEECH_RMS: f32 = 0.008;
+/// Voice must be this much louder than the background noise floor. Meeting
+/// audio is rarely silent, so a fixed threshold never sees the pauses.
+const SPEECH_OVER_NOISE: f32 = 2.5;
+/// The noise floor is the quietest frame in this many recent frames (3 s):
+/// speech always has short dips between words, background noise doesn't.
+const NOISE_WINDOW_FRAMES: usize = 150;
 /// Silence that ends an utterance.
-const END_SILENCE: usize = SAMPLE_RATE * 7 / 10;
+const END_SILENCE: usize = SAMPLE_RATE / 2;
 /// Audio kept before the first speech frame so word onsets aren't clipped.
 const LEAD_IN: usize = SAMPLE_RATE * 3 / 10;
-/// Long monologues are cut so text keeps flowing.
-const MAX_UTTERANCE: usize = SAMPLE_RATE * 20;
+/// Long monologues are cut so final text keeps flowing.
+const MAX_UTTERANCE: usize = SAMPLE_RATE * 10;
 /// Utterances with less speech than this are clicks/noise.
 const MIN_SPEECH: usize = SAMPLE_RATE * 3 / 10;
+/// How often the utterance still being spoken is re-transcribed for the preview.
+const PARTIAL_EVERY: usize = SAMPLE_RATE;
 /// How long transcript lines are kept.
 const RETENTION_MS: u64 = 15 * 60 * 1000;
-const POLL: Duration = Duration::from_millis(500);
+const POLL: Duration = Duration::from_millis(250);
 
 fn now_ms() -> u64 {
     SystemTime::now()
@@ -41,9 +49,8 @@ fn now_ms() -> u64 {
         .unwrap_or(0)
 }
 
-fn frame_is_speech(frame: &[f32]) -> bool {
-    let rms = (frame.iter().map(|s| s * s).sum::<f32>() / frame.len().max(1) as f32).sqrt();
-    rms > SPEECH_RMS
+fn frame_rms(frame: &[f32]) -> f32 {
+    (frame.iter().map(|s| s * s).sum::<f32>() / frame.len().max(1) as f32).sqrt()
 }
 
 /// Per-source utterance segmenter.
@@ -57,6 +64,10 @@ struct Track {
     in_speech: bool,
     speech_samples: usize,
     trailing_silence: usize,
+    /// RMS of recent frames, for the adaptive noise floor.
+    recent_rms: VecDeque<f32>,
+    /// `pending.len()` when the last partial result was produced.
+    partial_mark: usize,
 }
 
 struct Chunk {
@@ -79,8 +90,8 @@ impl Track {
 
         let mut chunks = Vec::new();
         while self.pending.len() - self.scanned >= FRAME {
-            let frame = &self.pending[self.scanned..self.scanned + FRAME];
-            let speech = frame_is_speech(frame);
+            let rms = frame_rms(&self.pending[self.scanned..self.scanned + FRAME]);
+            let speech = self.is_speech(rms);
             self.scanned += FRAME;
 
             if !self.in_speech {
@@ -119,6 +130,7 @@ impl Track {
                     });
                 }
                 self.scanned = 0;
+                self.partial_mark = 0;
                 // A forced cut mid-speech continues as a new utterance.
                 self.in_speech = self.trailing_silence < END_SILENCE;
                 self.speech_samples = 0;
@@ -126,6 +138,26 @@ impl Track {
             }
         }
         chunks
+    }
+
+    fn is_speech(&mut self, rms: f32) -> bool {
+        if self.recent_rms.len() == NOISE_WINDOW_FRAMES {
+            self.recent_rms.pop_front();
+        }
+        self.recent_rms.push_back(rms);
+        let noise_floor = self.recent_rms.iter().copied().fold(f32::INFINITY, f32::min);
+        rms > SPEECH_RMS.max(noise_floor * SPEECH_OVER_NOISE)
+    }
+
+    /// The utterance in progress, once per PARTIAL_EVERY of new audio, for a
+    /// live preview of words as they are spoken.
+    fn take_partial(&mut self, source: &'static str) -> Option<Chunk> {
+        if self.pending.len() < self.partial_mark + PARTIAL_EVERY {
+            return None;
+        }
+        let chunk = self.in_progress(source)?;
+        self.partial_mark = self.pending.len();
+        Some(chunk)
     }
 
     /// The utterance still being spoken, if any (not consumed).
@@ -150,6 +182,14 @@ pub struct LiveSegment {
     text: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     speaker: Option<String>,
+}
+
+/// Words of the utterance still being spoken; replaced by the final segment.
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LivePartial {
+    source: &'static str,
+    text: String,
 }
 
 struct LiveConfig {
@@ -310,11 +350,56 @@ fn offset_to_ms(end_ms: u64, offset_seconds: f32) -> u64 {
     end_ms.saturating_sub(offset_ms)
 }
 
+impl Deps {
+    fn emit_partials(&self) {
+        let mut partials = Vec::new();
+        if let Ok(mut track) = self.live.system.lock() {
+            partials.extend(track.take_partial("system"));
+        }
+        if self.mic.buffer.is_recording() {
+            if let Ok(mut track) = self.live.mic.lock() {
+                partials.extend(track.take_partial("mic"));
+            }
+        }
+        for chunk in partials {
+            if let Ok(segments) = self.transcribe_text_only(&chunk) {
+                let text = segments.join(" ");
+                if !text.is_empty() {
+                    let _ = self.app.emit(
+                        "live-transcript-partial",
+                        LivePartial {
+                            source: chunk.source,
+                            text,
+                        },
+                    );
+                }
+            }
+        }
+    }
+
+    /// Whisper only (no speaker id), for partial results.
+    fn transcribe_text_only(&self, chunk: &Chunk) -> Result<Vec<String>, String> {
+        let (model_id, language) = self.language().ok_or("Live transcription is not configured")?;
+        let language = if spec(&model_id)?.multilingual {
+            language
+        } else {
+            "en".to_string()
+        };
+        let ctx = context_for(&self.app, &self.stt, &model_id)?;
+        let _guard = self.stt.whisper_lock.lock().map_err(|e| e.to_string())?;
+        Ok(run_whisper(&ctx, &chunk.samples, &language, chunk.source)?
+            .into_iter()
+            .map(|s| s.text)
+            .collect())
+    }
+}
+
 fn worker_loop(deps: Deps) {
     while deps.live.running.load(Ordering::SeqCst) {
         let started = Instant::now();
         let chunks = deps.pump_all();
         deps.process(chunks);
+        deps.emit_partials();
         if let Some(rest) = POLL.checked_sub(started.elapsed()) {
             thread::sleep(rest);
         }
@@ -513,6 +598,33 @@ mod tests {
             .collect()
     }
 
+    /// Syllable-like envelope (4 Hz, dipping to 10%), like real speech energy.
+    fn speech(seconds: f32, amplitude: f32) -> Vec<f32> {
+        tone(seconds, amplitude)
+            .into_iter()
+            .enumerate()
+            .map(|(i, s)| {
+                let t = i as f32 / SAMPLE_RATE as f32;
+                s * (0.55 + 0.45 * (t * 4.0 * std::f32::consts::TAU).sin())
+            })
+            .collect()
+    }
+
+    /// Deterministic broadband noise with the given RMS-ish level.
+    fn noise(seconds: f32, amplitude: f32) -> Vec<f32> {
+        let mut x: u32 = 12345;
+        (0..(seconds * SAMPLE_RATE as f32) as usize)
+            .map(|_| {
+                x = x.wrapping_mul(1_103_515_245).wrapping_add(12_345);
+                ((x >> 16) as f32 / 32_768.0 - 1.0) * amplitude
+            })
+            .collect()
+    }
+
+    fn mix(a: Vec<f32>, b: &[f32]) -> Vec<f32> {
+        a.into_iter().zip(b).map(|(x, y)| x + y).collect()
+    }
+
     fn feed(buffer: &SystemAudioState, samples: &[f32]) {
         for chunk in samples.chunks(1600) {
             buffer.push_samples_realtime(chunk);
@@ -531,7 +643,7 @@ mod tests {
         let b = buffer();
         let mut track = Track::default();
         feed(&b, &tone(1.0, 0.0));
-        feed(&b, &tone(2.0, 0.2));
+        feed(&b, &speech(2.0, 0.2));
         assert!(track.pump(&b, "system").is_empty(), "still speaking");
         assert!(track.in_progress("system").is_some());
 
@@ -539,8 +651,8 @@ mod tests {
         let chunks = track.pump(&b, "system");
         assert_eq!(chunks.len(), 1);
         let secs = chunks[0].samples.len() as f32 / SAMPLE_RATE as f32;
-        // 2 s speech + lead-in + ~0.7 s silence, with the leading silence dropped.
-        assert!((2.5..3.3).contains(&secs), "chunk was {secs}s");
+        // 2 s speech + lead-in + ~0.5 s silence, with the leading silence dropped.
+        assert!((2.4..3.1).contains(&secs), "chunk was {secs}s");
         assert!(track.in_progress("system").is_none());
     }
 
@@ -598,12 +710,44 @@ mod tests {
     }
 
     #[test]
+    fn pauses_are_found_in_noisy_meeting_audio() {
+        let b = buffer();
+        let mut track = Track::default();
+        // Constant background noise well above the fixed -42 dBFS floor.
+        let mut audio = noise(1.0, 0.05);
+        for _ in 0..3 {
+            let s = speech(2.0, 0.3);
+            audio.extend(mix(s.clone(), &noise(2.0, 0.05)));
+            audio.extend(noise(0.8, 0.05)); // a pause, but not silence
+        }
+        feed(&b, &audio);
+        let chunks = track.pump(&b, "system");
+        assert_eq!(chunks.len(), 3, "each sentence should end at its pause");
+    }
+
+    #[test]
+    fn partial_results_arrive_every_second_of_speech() {
+        let b = buffer();
+        let mut track = Track::default();
+        feed(&b, &speech(0.6, 0.2));
+        track.pump(&b, "system");
+        assert!(track.take_partial("system").is_none(), "under a second");
+        feed(&b, &speech(0.6, 0.2));
+        track.pump(&b, "system");
+        assert!(track.take_partial("system").is_some());
+        assert!(track.take_partial("system").is_none(), "no new audio yet");
+        feed(&b, &speech(1.0, 0.2));
+        track.pump(&b, "system");
+        assert!(track.take_partial("system").is_some());
+    }
+
+    #[test]
     fn long_monologue_is_split() {
         let b = buffer();
         let mut track = Track::default();
-        feed(&b, &tone(45.0, 0.2));
+        feed(&b, &speech(45.0, 0.2));
         let chunks = track.pump(&b, "system");
-        assert_eq!(chunks.len(), 2);
+        assert_eq!(chunks.len(), 4);
         assert!(chunks.iter().all(|c| c.samples.len() <= MAX_UTTERANCE));
         assert!(track.in_progress("system").is_some());
     }
