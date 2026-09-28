@@ -17,7 +17,7 @@ import {
   ClockIcon,
 } from "lucide-react";
 import { useApp } from "@/contexts";
-import { safeLocalStorage } from "@/lib";
+import { clearSelectedPreset, safeLocalStorage } from "@/lib";
 import { STORAGE_KEYS } from "@/config";
 import moment from "moment";
 
@@ -142,6 +142,7 @@ export const RunningbordPrompts = () => {
       // Clear the user's selected prompt ID from local storage
       // This ensures the user prompt cards don't show as selected
       safeLocalStorage.removeItem(STORAGE_KEYS.SELECTED_SYSTEM_PROMPT_ID);
+      clearSelectedPreset();
 
       // Save the system prompt to local storage
       safeLocalStorage.setItem(STORAGE_KEYS.SYSTEM_PROMPT, prompt.prompt);

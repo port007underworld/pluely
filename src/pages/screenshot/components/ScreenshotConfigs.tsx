@@ -7,7 +7,9 @@ import {
   SelectTrigger,
   Header,
   Switch,
+  Textarea,
 } from "@/components";
+import { DEFAULT_SCREENSHOT_AUTO_PROMPT } from "@/config";
 import { UseSettingsReturn } from "@/types";
 import { useTranscriptionConfig } from "@/lib";
 import { useState, useEffect } from "react";
@@ -152,15 +154,28 @@ export const ScreenshotConfigs = ({
         {/* Auto Prompt Input - Only show when auto mode is selected */}
         {screenshotConfiguration.mode === "auto" && (
           <div className="space-y-2">
-            <Label className="text-sm font-medium">Auto Prompt</Label>
-            <Input
+            <div className="flex items-center justify-between">
+              <Label className="text-sm font-medium">Auto Prompt</Label>
+              {screenshotConfiguration.autoPrompt !== DEFAULT_SCREENSHOT_AUTO_PROMPT && (
+                <button
+                  type="button"
+                  className="text-xs text-muted-foreground underline-offset-2 hover:underline hover:text-foreground"
+                  onClick={() => handleScreenshotPromptChange(DEFAULT_SCREENSHOT_AUTO_PROMPT)}
+                >
+                  Reset to default
+                </button>
+              )}
+            </div>
+            <Textarea
               placeholder="Enter prompt for automatic screenshot analysis..."
               value={screenshotConfiguration.autoPrompt}
               onChange={(e) => handleScreenshotPromptChange(e.target.value)}
-              className="w-full h-11 border-1 border-input/50 focus:border-primary/50 transition-colors"
+              className="w-full min-h-40 text-sm border-1 border-input/50 focus:border-primary/50 transition-colors"
             />
             <p className="text-xs text-muted-foreground">
-              This prompt will be used automatically when screenshots are taken
+              Sent with every screenshot shortcut, together with the meeting transcript. The system
+              prompt (System Prompts page) sets the overall behavior; this one says what to do with
+              each capture.
             </p>
           </div>
         )}

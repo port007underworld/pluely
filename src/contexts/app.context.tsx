@@ -6,7 +6,12 @@ import {
   STORAGE_KEYS,
 } from "@/config";
 import { getPlatform, safeLocalStorage, trackAppStart } from "@/lib";
-import { getShortcutsConfig, useTranscriptionConfig } from "@/lib/storage";
+import {
+  getShortcutsConfig,
+  resolveScreenshotPrompt,
+  resolveSystemPrompt,
+  useTranscriptionConfig,
+} from "@/lib/storage";
 import {
   getCustomizableState,
   setCustomizableState,
@@ -68,10 +73,7 @@ const AppContext = createContext<IContextType | undefined>(undefined);
 
 // Create the provider component
 export const AppProvider = ({ children }: { children: ReactNode }) => {
-  const [systemPrompt, setSystemPrompt] = useState<string>(
-    safeLocalStorage.getItem(STORAGE_KEYS.SYSTEM_PROMPT) ||
-      DEFAULT_SYSTEM_PROMPT
-  );
+  const [systemPrompt, setSystemPrompt] = useState<string>(resolveSystemPrompt);
 
   // AI Providers
   const [customAiProviders, setCustomAiProviders] = useState<TYPE_PROVIDER[]>(
@@ -231,9 +233,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         if (typeof parsed === "object" && parsed !== null) {
           setScreenshotConfiguration({
             mode: parsed.mode || "manual",
-            autoPrompt:
-              parsed.autoPrompt ||
-              DEFAULT_SCREENSHOT_AUTO_PROMPT,
+            autoPrompt: resolveScreenshotPrompt(parsed.autoPrompt),
             enabled: parsed.enabled !== undefined ? parsed.enabled : false,
             // Load compression settings with sensible defaults
             compressionEnabled:

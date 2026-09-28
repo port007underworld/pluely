@@ -26,6 +26,7 @@ import { CreateEditDialog } from "./CreateEditDialog";
 import { RunningbordPrompts } from "./RunningbordPrompts";
 import { useState } from "react";
 import { PageLayout } from "@/layouts";
+import { DEFAULT_PRESET_ID, PROMPT_PRESETS } from "@/config";
 
 const SystemPrompts = () => {
   const {
@@ -38,6 +39,9 @@ const SystemPrompts = () => {
     selectedPromptId,
     handleSelectPrompt,
     clearError,
+    selectedPresetId,
+    handleSelectPreset,
+    copyPreset,
   } = useSystemPrompts();
 
   const [search, setSearch] = useState("");
@@ -174,6 +178,62 @@ const SystemPrompts = () => {
           <p className="text-sm text-destructive">{error}</p>
         </div>
       )}
+      {/* Built-in presets */}
+      <div className="space-y-2">
+        <div>
+          <h3 className="text-sm font-semibold">Built-in presets</h3>
+          <p className="text-xs text-muted-foreground">
+            Tuned for technical work: they answer what you actually need and ignore incidental
+            details on screen. Customize one to make an editable copy in your prompts.
+          </p>
+        </div>
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+          {PROMPT_PRESETS.map((preset) => {
+            const isSelected = selectedPresetId === preset.id;
+            return (
+              <Card
+                key={preset.id}
+                className={`relative border lg:border-2 shadow-none p-4 pb-10 gap-0 cursor-pointer transition-all hover:shadow-sm ${
+                  isSelected
+                    ? "!bg-primary/5 dark:!bg-primary/10 border-primary"
+                    : "!bg-black/5 dark:!bg-white/5 border-transparent"
+                }`}
+                onClick={() => handleSelectPreset(preset.id)}
+              >
+                {isSelected && (
+                  <CheckCircle2 className="size-5 text-green-500 flex-shrink-0 absolute top-2 right-2" />
+                )}
+                <CardHeader className="p-0 select-none">
+                  <CardTitle className="text-sm pr-5">
+                    {preset.name}
+                    {preset.id === DEFAULT_PRESET_ID && (
+                      <span className="ml-2 text-[10px] font-normal text-muted-foreground">
+                        default
+                      </span>
+                    )}
+                  </CardTitle>
+                  <CardDescription className="text-xs leading-relaxed">
+                    {preset.description}
+                  </CardDescription>
+                </CardHeader>
+                <button
+                  type="button"
+                  className="absolute bottom-2 left-4 text-[11px] text-muted-foreground underline-offset-2 hover:underline hover:text-foreground"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    copyPreset(preset).catch(() => {});
+                  }}
+                >
+                  Customize
+                </button>
+              </Card>
+            );
+          })}
+        </div>
+      </div>
+
+      <h3 className="text-sm font-semibold pt-2">Your prompts</h3>
+
       {/* Search Bar */}
       <div className="flex items-center gap-2 justify-between">
         <div className="relative w-full md:w-1/2 lg:w-1/3 select-none">

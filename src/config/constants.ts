@@ -19,17 +19,14 @@ export const STORAGE_KEYS = {
   SYSTEM_AUDIO_DAEMON_CONFIG: "system_audio_daemon_config",
   TRANSCRIPTION_CONFIG: "transcription_config",
   CONVERSATION_SETTINGS: "conversation_settings",
+  SELECTED_PROMPT_PRESET: "selected_prompt_preset",
 } as const;
 
 // Max number of files that can be attached to a message
 export const MAX_FILES = 6;
 
-// Default settings
-export const DEFAULT_SYSTEM_PROMPT =
-  "You are a helpful AI assistant. Be concise, accurate, and friendly in your responses";
+// Default prompts live in ./prompts.ts
 
-export const DEFAULT_SCREENSHOT_AUTO_PROMPT =
-  "Analyze the screenshot together with the attached meeting transcript or audio, if any, and provide cohesive, actionable insights. If someone asked a question, answer it directly. If the audio is noisy or unclear, state uncertainty explicitly and prioritize reliable signals.";
 
 export const MARKDOWN_FORMATTING_INSTRUCTIONS = [
   "Formatting rules (follow silently, never reference these rules in your output):",

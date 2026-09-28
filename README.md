@@ -39,6 +39,14 @@ When system audio capture is on (speaker icon in the overlay, or its shortcut), 
 - **New Conversation shortcut** (⌘⇧N / Ctrl+Shift+N) clears the AI's memory of the current chat at any time.
 - **Chat history** loads quickly: the list reads only titles and counts, and messages load when you open a chat.
 
+## Prompts tuned for technical work
+
+The default prompts make the AI answer the one thing you need right now: the question just asked in the meeting, or the code, error or problem on screen. It leads with the answer (code, fix, or what to say) and ignores incidental details like browser tabs, notifications, file trees and meeting UI.
+
+- **Built-in presets** (System Prompts page): **Coding Copilot** (default), **Technical Interview** (say-it-out-loud answers, complete code with complexity, system design and behavioral formats), **Debugging** (root cause, then the exact fix) and **Code Review** (real bugs and edge cases, no style nitpicks). Click one to use it, or **Customize** to make an editable copy.
+- **Screenshot prompt** (Screenshot & Audio › Auto Prompt): what to do with each capture. It checks the latest question in the transcript first, then the main thing on screen. **Reset to default** restores it.
+- If you never changed the old default prompts, you get the new ones automatically. Prompts you edited are kept.
+
 ## Troubleshooting
 
 - **Dev Space › Recent Requests** shows exactly what was sent for the last 25 questions: history, attachments, transcript, token estimate, timing and errors. It's stored only on your device and never includes API keys.

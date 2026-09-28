@@ -10,8 +10,13 @@ import type {
   SystemPromptInput,
   UpdateSystemPromptInput,
 } from "@/types";
-import { DEFAULT_SYSTEM_PROMPT, STORAGE_KEYS } from "@/config";
-import { safeLocalStorage } from "@/lib";
+import { DEFAULT_PRESET_ID, STORAGE_KEYS, PromptPreset } from "@/config";
+import {
+  clearSelectedPreset,
+  getSelectedPresetId,
+  safeLocalStorage,
+  selectPreset,
+} from "@/lib";
 import { useApp } from "@/contexts";
 
 export const useSystemPrompts = () => {
@@ -26,6 +31,9 @@ export const useSystemPrompts = () => {
       );
       return stored ? Number(stored) : null;
     }
+  );
+  const [selectedPresetId, setSelectedPresetId] = useState<string | null>(
+    getSelectedPresetId
   );
 
   /**
@@ -140,19 +148,10 @@ export const useSystemPrompts = () => {
       if (selectedPrompt) {
         setSystemPrompt(selectedPrompt.prompt);
       } else {
-        // Selected prompt was deleted, reset to default
+        // Selected prompt was deleted: fall back to the default preset.
         setSelectedPromptId(null);
-        safeLocalStorage.removeItem(STORAGE_KEYS.SELECTED_SYSTEM_PROMPT_ID);
-        const currentPrompt = safeLocalStorage.getItem(
-          STORAGE_KEYS.SYSTEM_PROMPT
-        );
-        if (!currentPrompt) {
-          setSystemPrompt(DEFAULT_SYSTEM_PROMPT);
-          safeLocalStorage.setItem(
-            STORAGE_KEYS.SYSTEM_PROMPT,
-            DEFAULT_SYSTEM_PROMPT
-          );
-        }
+        setSystemPrompt(selectPreset(DEFAULT_PRESET_ID));
+        setSelectedPresetId(DEFAULT_PRESET_ID);
       }
     }
   }, [prompts, selectedPromptId, setSystemPrompt]);
@@ -176,9 +175,41 @@ export const useSystemPrompts = () => {
         );
         // Clear any selected Runningbord prompt when user selects their own prompt
         safeLocalStorage.removeItem("selected_runningbord_prompt");
+        clearSelectedPreset();
+        setSelectedPresetId(null);
       }
     },
     [prompts, setSystemPrompt]
+  );
+
+  const handleSelectPreset = useCallback(
+    (presetId: string) => {
+      setSystemPrompt(selectPreset(presetId));
+      setSelectedPresetId(presetId);
+      setSelectedPromptId(null);
+    },
+    [setSystemPrompt]
+  );
+
+  /** Copy a built-in preset into the user's own (editable) prompts and select it. */
+  const copyPreset = useCallback(
+    async (preset: PromptPreset) => {
+      const created = await createPrompt({
+        name: `${preset.name} (custom)`,
+        prompt: preset.prompt,
+      });
+      setSystemPrompt(created.prompt);
+      setSelectedPromptId(created.id);
+      safeLocalStorage.setItem(STORAGE_KEYS.SYSTEM_PROMPT, created.prompt);
+      safeLocalStorage.setItem(
+        STORAGE_KEYS.SELECTED_SYSTEM_PROMPT_ID,
+        created.id.toString()
+      );
+      clearSelectedPreset();
+      setSelectedPresetId(null);
+      return created;
+    },
+    [createPrompt, setSystemPrompt]
   );
 
   return {
@@ -192,5 +223,8 @@ export const useSystemPrompts = () => {
     refreshPrompts,
     clearError,
     handleSelectPrompt,
+    selectedPresetId,
+    handleSelectPreset,
+    copyPreset,
   };
 };
