@@ -6,14 +6,18 @@ export interface ConversationSettings {
   idleResetMinutes: number;
   /** Approximate token budget for past messages sent with each request. 0 = unlimited. */
   historyBudgetTokens: number;
+  /** Delete saved conversations not updated for this many days. 0 = keep forever. */
+  retentionDays: number;
 }
 
 export const IDLE_RESET_OPTIONS = [0, 5, 10, 15, 30, 60];
 export const HISTORY_BUDGET_OPTIONS = [2000, 4000, 8000, 16000, 32000, 0];
+export const RETENTION_OPTIONS = [0, 1, 7, 30, 90, 365];
 
 export const DEFAULT_CONVERSATION_SETTINGS: ConversationSettings = {
   idleResetMinutes: 10,
   historyBudgetTokens: 8000,
+  retentionDays: 0,
 };
 
 const CHANGE_EVENT = "conversation-settings-changed";
@@ -30,6 +34,9 @@ export const getConversationSettings = (): ConversationSettings => {
       historyBudgetTokens: HISTORY_BUDGET_OPTIONS.includes(parsed.historyBudgetTokens)
         ? parsed.historyBudgetTokens
         : DEFAULT_CONVERSATION_SETTINGS.historyBudgetTokens,
+      retentionDays: RETENTION_OPTIONS.includes(parsed.retentionDays)
+        ? parsed.retentionDays
+        : DEFAULT_CONVERSATION_SETTINGS.retentionDays,
     };
   } catch {
     return DEFAULT_CONVERSATION_SETTINGS;

@@ -3,7 +3,6 @@ import { useApp } from "@/contexts";
 import {
   extractVariables,
   safeLocalStorage,
-  deleteAllConversations,
 } from "@/lib";
 import { STORAGE_KEYS } from "@/config";
 
@@ -30,7 +29,6 @@ export const useSettings = () => {
     }[]
   >([]);
 
-  const [showDeleteConfirmDialog, setShowDeleteConfirmDialog] = useState(false);
 
   const handleScreenshotModeChange = (value: "auto" | "manual") => {
     const newConfig = { ...screenshotConfiguration, mode: value };
@@ -141,15 +139,6 @@ export const useSettings = () => {
     }
   }, [selectedSttProvider.provider]);
 
-  const handleDeleteAllChatsConfirm = async () => {
-    try {
-      await deleteAllConversations();
-      setShowDeleteConfirmDialog(false);
-    } catch (error) {
-      console.error("Failed to delete all conversations:", error);
-    }
-  };
-
   return {
     screenshotConfiguration,
     setScreenshotConfiguration,
@@ -170,9 +159,6 @@ export const useSettings = () => {
     selectedSttProvider,
     onSetSelectedAIProvider,
     onSetSelectedSttProvider,
-    handleDeleteAllChatsConfirm,
-    showDeleteConfirmDialog,
-    setShowDeleteConfirmDialog,
     variables,
     sttVariables,
   };

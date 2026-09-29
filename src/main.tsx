@@ -6,6 +6,7 @@ import "./global.css";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import AppRoutes from "./routes";
 import { startUpdateChecks } from "./lib/updater";
+import { startRetentionSweep } from "./lib/retention";
 
 const currentWindow = getCurrentWindow();
 const windowLabel = currentWindow.label;
@@ -21,6 +22,7 @@ if (windowLabel.startsWith("capture-overlay-")) {
   );
 } else {
   startUpdateChecks();
+  startRetentionSweep();
   ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
     <React.StrictMode>
       <ThemeProvider>

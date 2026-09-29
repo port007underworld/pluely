@@ -4,6 +4,7 @@ import {
   AppIconToggle,
   Permissions,
   Updates,
+  ChatHistory,
 } from "./components";
 import { PageLayout } from "@/layouts";
 
@@ -20,6 +21,8 @@ const Settings = () => {
       <AlwaysOnTopToggle />
 
       <Permissions />
+
+      <ChatHistory />
 
       <Updates />
     </PageLayout>

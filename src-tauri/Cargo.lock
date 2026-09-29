@@ -160,6 +160,7 @@ dependencies = [
  "raw-window-handle",
  "serde",
  "serde_repr",
+ "tokio",
  "url",
  "wayland-backend",
  "wayland-client",
@@ -4962,6 +4963,9 @@ dependencies = [
  "ashpd",
  "block2 0.6.1",
  "dispatch2",
+ "glib-sys",
+ "gobject-sys",
+ "gtk-sys",
  "js-sys",
  "log",
  "objc2 0.6.2",
@@ -5054,6 +5058,7 @@ dependencies = [
  "tauri",
  "tauri-build",
  "tauri-nspanel",
+ "tauri-plugin-dialog",
  "tauri-plugin-global-shortcut",
  "tauri-plugin-http",
  "tauri-plugin-macos-permissions",
@@ -6301,6 +6306,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "tauri-plugin-dialog"
+version = "2.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0beee42a4002bc695550599b011728d9dfabf82f767f134754ed6655e434824e"
+dependencies = [
+ "log",
+ "raw-window-handle",
+ "rfd",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-plugin",
+ "tauri-plugin-fs",
+ "thiserror 2.0.14",
+ "url",
+]
+
+[[package]]
 name = "tauri-plugin-fs"
 version = "2.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6728,6 +6751,7 @@ dependencies = [
  "slab",
  "socket2 0.6.0",
  "tokio-macros",
+ "tracing",
  "windows-sys 0.59.0",
 ]
 
@@ -8326,6 +8350,7 @@ dependencies = [
  "ordered-stream",
  "serde",
  "serde_repr",
+ "tokio",
  "tracing",
  "uds_windows",
  "windows-sys 0.59.0",

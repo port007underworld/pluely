@@ -3,6 +3,7 @@ import {
   listConversations,
   getConversationById,
   deleteConversation,
+  exportConversations,
   DOWNLOAD_SUCCESS_DISPLAY_MS,
 } from "@/lib";
 import { ChatConversation } from "@/types/completion";
@@ -24,7 +25,7 @@ export interface UseHistoryReturn {
   handleDownloadConversation: (
     conversation: ChatConversation,
     e: React.MouseEvent
-  ) => void;
+  ) => Promise<boolean>;
   handleDeleteConfirm: (conversationId: string) => void;
   confirmDelete: () => void;
   cancelDelete: () => void;
@@ -32,7 +33,7 @@ export interface UseHistoryReturn {
   handleDownload: (
     conversation: ChatConversation | null,
     e: React.MouseEvent
-  ) => void;
+  ) => Promise<void>;
   search: string;
   setSearch: React.Dispatch<React.SetStateAction<string>>;
   // Utilities
@@ -88,37 +89,20 @@ export function useHistory({ loadList = true }: { loadList?: boolean } = {}): Us
   ) => {
     e.stopPropagation();
 
-    // Show download success state
-    setDownloadedConversations((prev) => new Set(prev).add(conversation.id));
-
     try {
       // List summaries don't carry messages; load the full conversation first.
       const full =
         conversation.messages.length === 0 && (conversation.messageCount ?? 0) > 0
           ? (await getConversationById(conversation.id)) ?? conversation
           : conversation;
-      const markdown = generateConversationMarkdown(full);
-
-      // Create and download the file
-      const blob = new Blob([markdown], { type: "text/markdown" });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = generateFilename(conversation.title);
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
+      const saved = await exportConversations("markdown", [full]);
+      if (!saved) return false;
     } catch (error) {
       console.error("Failed to download conversation:", error);
-      // Remove from success state if download failed
-      setDownloadedConversations((prev) => {
-        const newSet = new Set(prev);
-        newSet.delete(conversation.id);
-        return newSet;
-      });
-      return;
+      return false;
     }
+
+    setDownloadedConversations((prev) => new Set(prev).add(conversation.id));
 
     // Clear success state after display timeout
     setTimeout(() => {
@@ -128,6 +112,7 @@ export function useHistory({ loadList = true }: { loadList?: boolean } = {}): Us
         return newSet;
       });
     }, DOWNLOAD_SUCCESS_DISPLAY_MS);
+    return true;
   };
 
   const handleDeleteConfirm = (conversationId: string) => {
@@ -172,47 +157,16 @@ export function useHistory({ loadList = true }: { loadList?: boolean } = {}): Us
     }, DOWNLOAD_SUCCESS_DISPLAY_MS);
   };
 
-  const handleDownload = (
+  const handleDownload = async (
     conversation: ChatConversation | null,
     e: React.MouseEvent
   ) => {
-    if (conversation) {
-      handleDownloadConversation(conversation, e);
+    if (conversation && (await handleDownloadConversation(conversation, e))) {
       setIsDownloaded(true);
       setTimeout(() => {
         setIsDownloaded(false);
       }, DOWNLOAD_SUCCESS_DISPLAY_MS);
     }
-  };
-
-  // Helper functions
-  const generateConversationMarkdown = (
-    conversation: ChatConversation
-  ): string => {
-    let markdown = `# ${conversation.title}\n\n`;
-    markdown += `**Created:** ${new Date(
-      conversation.createdAt
-    ).toLocaleString()}\n`;
-    markdown += `**Updated:** ${new Date(
-      conversation.updatedAt
-    ).toLocaleString()}\n`;
-    markdown += `**Messages:** ${conversation.messages.length}\n\n---\n\n`;
-
-    conversation.messages.forEach((message, index) => {
-      const roleLabel = message.role.toUpperCase();
-      markdown += `## ${roleLabel}: ${message.content}\n`;
-
-      if (index < conversation.messages.length - 1) {
-        markdown += "\n";
-      }
-    });
-
-    return markdown;
-  };
-
-  const generateFilename = (title: string): string => {
-    const sanitizedTitle = title.replace(/[^a-z0-9]/gi, "_").toLowerCase();
-    return `${sanitizedTitle.substring(0, 16)}.md`;
   };
 
   return {

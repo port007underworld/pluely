@@ -240,6 +240,50 @@ export async function deleteAllConversations(): Promise<void> {
   }
 }
 
+/**
+ * Delete conversations last updated before the cutoff (ms). Returns how many
+ * were removed.
+ */
+export async function deleteConversationsUpdatedBefore(cutoff: number): Promise<number> {
+  const db = await getDatabase();
+  await db.execute(
+    "DELETE FROM messages WHERE conversation_id IN (SELECT id FROM conversations WHERE updated_at < ?)",
+    [cutoff]
+  );
+  const result = await db.execute("DELETE FROM conversations WHERE updated_at < ?", [cutoff]);
+  return result.rowsAffected;
+}
+
+/** Every conversation with its messages, oldest first, for export. */
+export async function getAllConversations(): Promise<ChatConversation[]> {
+  const db = await getDatabase();
+  const conversations = await db.select<DbConversation[]>(
+    "SELECT * FROM conversations ORDER BY created_at ASC"
+  );
+  const messages = await db.select<DbMessage[]>(
+    "SELECT * FROM messages ORDER BY timestamp ASC"
+  );
+  const byConversation = new Map<string, ChatConversation["messages"]>();
+  for (const msg of messages) {
+    const list = byConversation.get(msg.conversation_id) ?? [];
+    list.push({
+      id: msg.id,
+      role: msg.role,
+      content: msg.content,
+      timestamp: msg.timestamp,
+      attachedFiles: safeJsonParse(msg.attached_files, undefined),
+    });
+    byConversation.set(msg.conversation_id, list);
+  }
+  return conversations.map((conv) => ({
+    id: conv.id,
+    title: conv.title,
+    createdAt: conv.created_at,
+    updatedAt: conv.updated_at,
+    messages: byConversation.get(conv.id) ?? [],
+  }));
+}
+
 const MAX_TITLE_LENGTH = 80;
 
 /**

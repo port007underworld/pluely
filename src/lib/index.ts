@@ -11,3 +11,4 @@ export * from "./request-log";
 export * from "./permissions";
 export * from "./shortcut-format";
 export * from "./updater";
+export * from "./retention";

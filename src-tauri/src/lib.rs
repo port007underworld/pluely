@@ -2,6 +2,7 @@
 mod capture;
 mod db;
 mod documents;
+mod export;
 mod secrets;
 mod local_stt;
 mod mic_audio;
@@ -52,6 +53,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_shell::init());
     #[cfg(target_os = "macos")]
@@ -102,6 +104,7 @@ pub fn run() {
             speaker_id::speaker_model_download,
             speaker_id::speaker_model_delete,
             documents::extract_document_text,
+            export::save_export,
             secrets::secret_get,
             secrets::secret_set,
             secrets::secret_delete,

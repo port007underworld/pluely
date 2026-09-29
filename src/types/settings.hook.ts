@@ -34,9 +34,6 @@ export interface UseSettingsReturn {
     provider: string;
     variables: Record<string, string>;
   }) => void;
-  handleDeleteAllChatsConfirm: () => void;
-  showDeleteConfirmDialog: boolean;
-  setShowDeleteConfirmDialog: React.Dispatch<React.SetStateAction<boolean>>;
   variables: { key: string; value: string }[];
   sttVariables: { key: string; value: string }[];
 }
