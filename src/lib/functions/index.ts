@@ -9,3 +9,4 @@ export * from "./question-detect.function";
 export * from "./meeting-notes.function";
 export * from "./code-block.function";
 export * from "./prompt-cache.function";
+export * from "./follow-ups.function";

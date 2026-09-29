@@ -3,3 +3,4 @@ export * from "./LanguageSelector";
 export * from "./AutoScrollToggle";
 
 export * from "./ConversationMemory";
+export * from "./FollowUpsToggle";

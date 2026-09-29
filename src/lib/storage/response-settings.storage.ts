@@ -9,12 +9,15 @@ export interface ResponseSettings {
   responseLength: string;
   language: string;
   autoScroll: boolean;
+  /** Overlay answers end with 2–3 likely follow-up questions, shown as buttons. */
+  suggestFollowUps: boolean;
 }
 
 export const DEFAULT_RESPONSE_SETTINGS: ResponseSettings = {
   responseLength: DEFAULT_RESPONSE_LENGTH,
   language: DEFAULT_LANGUAGE,
   autoScroll: DEFAULT_AUTO_SCROLL,
+  suggestFollowUps: true,
 };
 
 /**
@@ -38,6 +41,7 @@ export const getResponseSettings = (): ResponseSettings => {
         parsedSettings.autoScroll !== undefined
           ? parsedSettings.autoScroll
           : DEFAULT_RESPONSE_SETTINGS.autoScroll,
+      suggestFollowUps: parsedSettings.suggestFollowUps !== false,
     };
   } catch (error) {
     console.error("Failed to get response settings:", error);
@@ -87,6 +91,12 @@ export const updateLanguage = (language: string): ResponseSettings => {
 export const updateAutoScroll = (autoScroll: boolean): ResponseSettings => {
   const currentSettings = getResponseSettings();
   const newSettings = { ...currentSettings, autoScroll };
+  setResponseSettings(newSettings);
+  return newSettings;
+};
+
+export const updateSuggestFollowUps = (suggestFollowUps: boolean): ResponseSettings => {
+  const newSettings = { ...getResponseSettings(), suggestFollowUps };
   setResponseSettings(newSettings);
   return newSettings;
 };

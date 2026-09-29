@@ -3,6 +3,7 @@ import {
   LanguageSelector,
   AutoScrollToggle,
   ConversationMemory,
+  FollowUpsToggle,
 } from "./components";
 import { PageLayout } from "@/layouts";
 
@@ -18,6 +19,8 @@ const Responses = () => {
 
       {/* Language Selector */}
       <LanguageSelector />
+
+      <FollowUpsToggle />
 
       {/* Auto-Scroll Toggle */}
       <AutoScrollToggle />

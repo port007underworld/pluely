@@ -19,7 +19,7 @@ import {
 } from "@/components";
 import { UseCompletionReturn } from "@/types";
 import { QUICK_ACTIONS } from "@/config";
-import { lastCodeBlock } from "@/lib";
+import { lastCodeBlock, splitFollowUps } from "@/lib";
 import { useAnswerPager } from "./useAnswerPager";
 
 const MOD = navigator.platform.toLowerCase().includes("mac") ? "⌘" : "Ctrl+";
@@ -51,17 +51,19 @@ export const Input = ({
   hasSlowModel,
   actionNotice,
   runQuickAction,
+  askFollowUp,
   copyLastCode,
 }: UseCompletionReturn & { isHidden: boolean }) => {
+  const { answer, followUps } = splitFollowUps(response);
   const pager = useAnswerPager({
     history: conversationHistory,
-    response,
+    response: answer,
     input,
     isLoading,
     conversationId: currentConversationId,
   });
   const { toLatest, previous, next } = pager;
-  const shownAnswer = pager.older?.content ?? response;
+  const shownAnswer = pager.older?.content ?? answer;
 
   // Closing the panel returns to the latest answer.
   useEffect(() => {
@@ -313,8 +315,26 @@ export const Input = ({
                   <span className="text-sm">Generating response...</span>
                 </div>
               )}
-              {response && <Markdown>{response}</Markdown>}
-              {response && !isLoading && (
+              {answer && <Markdown>{answer}</Markdown>}
+              {followUps.length > 0 && !isLoading && (
+                <div className="mt-3 space-y-1 select-none">
+                  <p className="text-[10px] uppercase tracking-wide text-muted-foreground/70">
+                    Likely next
+                  </p>
+                  {followUps.map((question) => (
+                    <button
+                      key={question}
+                      type="button"
+                      onClick={() => askFollowUp(question)}
+                      title="Get an answer ready for this question"
+                      className="block w-full text-left text-xs px-2.5 py-1.5 rounded-md border border-input/50 bg-muted/20 hover:bg-muted/60 hover:border-primary/40 transition-colors cursor-pointer"
+                    >
+                      {question}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {answer && !isLoading && (
                 <div className="flex flex-wrap items-center gap-1.5 pt-3 select-none">
                   {QUICK_ACTIONS.map((action, i) => (
                     <button
@@ -327,7 +347,7 @@ export const Input = ({
                       {action.label}
                     </button>
                   ))}
-                  {lastCodeBlock(response) !== null && (
+                  {lastCodeBlock(answer) !== null && (
                     <button
                       type="button"
                       onClick={() => void copyLastCode()}

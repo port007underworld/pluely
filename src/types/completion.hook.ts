@@ -135,6 +135,8 @@ export interface UseCompletionReturn {
   actionNotice: string | null;
   /** Rework the last answer (see QUICK_ACTIONS). */
   runQuickAction: (id: string) => void;
+  /** Ask a suggested follow-up question. */
+  askFollowUp: (question: string) => void;
   /** Copy the last code block of the latest answer. */
   copyLastCode: () => Promise<void>;
 }

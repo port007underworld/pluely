@@ -28,6 +28,8 @@ import {
   pastedImages,
   captureFullScreen,
   createQuestionDetector,
+  splitFollowUps,
+  FOLLOW_UP_INSTRUCTIONS,
   lastCodeBlock,
   useTranscriptionConfig,
   resolveAIProvider,
@@ -105,6 +107,16 @@ export const useCompletion = () => {
     delete vars.slow_model;
     return { ...selectedAIProvider, variables: vars };
   }, [selectedAIProvider, modelSpeed]);
+
+  /** The system prompt for overlay answers, asking for follow-up questions when enabled. */
+  const overlaySystemPrompt = useCallback(
+    (withFollowUps = true) => {
+      const base = systemPrompt || "";
+      if (!withFollowUps || !getResponseSettings().suggestFollowUps) return base || undefined;
+      return base ? `${base}\n\n${FOLLOW_UP_INSTRUCTIONS}` : FOLLOW_UP_INSTRUCTIONS;
+    },
+    [systemPrompt]
+  );
 
   // Mark these as used to avoid TS6133 when some flows don't reference them directly
   void screenRecordingPermissionGranted;
@@ -231,6 +243,8 @@ export const useCompletion = () => {
         console.error("Cannot save conversation: missing message content");
         return;
       }
+      // Follow-up suggestions are for display only; keep them out of history.
+      assistantResponse = splitFollowUps(assistantResponse).answer;
 
       const isNew = conversationIdRef.current === null;
       const conversationId =
@@ -344,7 +358,7 @@ export const useCompletion = () => {
           for await (const chunk of fetchAIResponse({
             provider,
             selectedProvider: getEffectiveProvider(),
-            systemPrompt: systemPrompt || undefined,
+            systemPrompt: overlaySystemPrompt(),
             history: messageHistory,
             userMessage: messageForRequest,
             imagesBase64: imagesForRequest, // Use frozen constant
@@ -414,7 +428,7 @@ export const useCompletion = () => {
       buildRequestHistory,
       selectedAIProvider,
       allAiProviders,
-      systemPrompt,
+      overlaySystemPrompt,
       saveCurrentConversation
     ]
   );
@@ -587,12 +601,15 @@ export const useCompletion = () => {
       imagesBase64,
       audioBase64,
       files,
+      followUps = true,
     }: {
       displayPrompt: string;
       userMessage: string;
       imagesBase64?: string[];
       audioBase64?: string;
       files: AttachedFile[];
+      /** Ask for follow-up questions (off for requests that are themselves questions). */
+      followUps?: boolean;
     }) => {
       const resolved = resolveAIProvider(selectedAIProvider, allAiProviders);
       if ("error" in resolved) {
@@ -622,7 +639,7 @@ export const useCompletion = () => {
         for await (const chunk of fetchAIResponse({
           provider,
           selectedProvider: getEffectiveProvider(),
-          systemPrompt: systemPrompt || undefined,
+          systemPrompt: overlaySystemPrompt(followUps),
           history: messageHistory,
           userMessage,
           imagesBase64,
@@ -658,7 +675,7 @@ export const useCompletion = () => {
       allAiProviders,
       buildRequestHistory,
       getEffectiveProvider,
-      systemPrompt,
+      overlaySystemPrompt,
       saveCurrentConversation,
       inputRef,
     ]
@@ -1049,7 +1066,21 @@ export const useCompletion = () => {
       const action = QUICK_ACTIONS.find((a) => a.id === id);
       const current = latestStateRef.current;
       if (!action || current.isLoading || historyRef.current.length === 0) return;
-      void sendDirect({ displayPrompt: action.label, userMessage: action.prompt, files: [] });
+      void sendDirect({
+        displayPrompt: action.label,
+        userMessage: action.prompt,
+        files: [],
+        followUps: action.id !== "ask_next",
+      });
+    },
+    [sendDirect]
+  );
+
+  /** Ask one of the suggested follow-up questions. */
+  const askFollowUp = useCallback(
+    (question: string) => {
+      if (latestStateRef.current.isLoading) return;
+      void sendDirect({ displayPrompt: question, userMessage: question, files: [] });
     },
     [sendDirect]
   );
@@ -1060,7 +1091,7 @@ export const useCompletion = () => {
       current.response ||
       [...historyRef.current].reverse().find((m) => m.role === "assistant")?.content ||
       "";
-    const code = lastCodeBlock(lastAnswer);
+    const code = lastCodeBlock(splitFollowUps(lastAnswer).answer);
     if (code === null) {
       flashNotice("No code block in the last answer.");
       return;
@@ -1211,6 +1242,7 @@ export const useCompletion = () => {
     idleResetNotice,
     actionNotice,
     runQuickAction,
+    askFollowUp,
     copyLastCode,
     contextInfo,
     error: state.error,
