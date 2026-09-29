@@ -8,8 +8,6 @@
 use base64::Engine;
 use serde::Serialize;
 use std::io::Cursor;
-use std::io::Write;
-use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;

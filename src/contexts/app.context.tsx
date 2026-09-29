@@ -5,7 +5,7 @@ import {
   SPEECH_TO_TEXT_PROVIDERS,
   STORAGE_KEYS,
 } from "@/config";
-import { getPlatform, safeLocalStorage, trackAppStart } from "@/lib";
+import { getPlatform, safeLocalStorage } from "@/lib";
 import {
   getShortcutsConfig,
   loadProviderSelection,
@@ -122,7 +122,6 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
   const [customizable, setCustomizable] = useState<CustomizableState>(
     getCustomizableState()
   );
-  const [hasActiveLicense, setHasActiveLicense] = useState<boolean>(true);
   const [supportsImages, setSupportsImagesState] = useState<boolean>(() => {
     const stored = safeLocalStorage.getItem(STORAGE_KEYS.SUPPORTS_IMAGES);
     return stored === null ? true : stored === "true";
@@ -173,32 +172,10 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
   // Model speed toggle state (fast/slow) — session-scoped, defaults to "fast"
   const [modelSpeed, setModelSpeed] = useState<"fast" | "slow">("fast");
 
-  // Runningbord API State
-  const [runningbordApiEnabled, setRunningbordApiEnabledState] = useState<boolean>(
-    safeLocalStorage.getItem(STORAGE_KEYS.RUNNINGBORD_API_ENABLED) === "true"
-  );
-
-  const getActiveLicenseStatus = async () => {
-    setHasActiveLicense(true);
-    setRunningbordApiEnabled(false);
-  };
-
-
   useEffect(() => {
-    const syncLicenseState = async () => {
-      try {
-        await invoke("set_license_status", {
-          hasLicense: hasActiveLicense,
-        });
-
-        const config = getShortcutsConfig();
-        await invoke("update_shortcuts", { config });
-      } catch (error) {
-        console.error("Failed to synchronize license state:", error);
-      }
-    };
-
-    syncLicenseState();
+    invoke("update_shortcuts", { config: getShortcutsConfig() }).catch((error) =>
+      console.error("Failed to register shortcuts:", error)
+    );
 
     // On startup, apply saved app-icon visibility to native layer (macOS/Windows/Linux)
     const applySavedAppIconVisibility = async () => {
@@ -213,7 +190,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     };
 
     applySavedAppIconVisibility();
-  }, [hasActiveLicense]);
+  }, []);
 
   // Function to load AI, STT, system prompt and screenshot config data from storage
   const loadData = () => {
@@ -347,15 +324,6 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
       // save the default state
       setCustomizableState(customizableState);
     }
-
-    // Load Runningbord API enabled state
-    const savedRunningbordApiEnabled = safeLocalStorage.getItem(
-      STORAGE_KEYS.RUNNINGBORD_API_ENABLED
-    );
-    if (savedRunningbordApiEnabled !== null) {
-      setRunningbordApiEnabledState(savedRunningbordApiEnabled === "true");
-    }
-
   };
 
   const updateCursor = (type: CursorType | undefined) => {
@@ -386,24 +354,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
 
   // Load data on mount
   useEffect(() => {
-    const initializeApp = async () => {
-      // Load license and data
-      await getActiveLicenseStatus();
-
-      // Track app start
-      try {
-        const appVersion = await invoke<string>("get_app_version");
-        const storage = await invoke<{
-          instance_id: string;
-        }>("secure_storage_get");
-        await trackAppStart(appVersion, storage.instance_id || "");
-      } catch (error) {
-        console.debug("Failed to track app start:", error);
-      }
-    };
-    // Load data
     loadData();
-    initializeApp();
   }, []);
 
   // Handle customizable settings on state changes
@@ -482,41 +433,10 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
 
   // Check if the current AI provider/model supports images
   useEffect(() => {
-    const checkImageSupport = async () => {
-      if (runningbordApiEnabled) {
-        // For Runningbord API, check the selected model's modality
-        try {
-          const storage = await invoke<{
-            selected_runningbord_model?: string;
-          }>("secure_storage_get");
-
-          if (storage.selected_runningbord_model) {
-            const model = JSON.parse(storage.selected_runningbord_model);
-            const hasImageSupport = model.modality?.includes("image") ?? false;
-            setSupportsImages(hasImageSupport);
-          } else {
-            // No model selected, assume no image support
-            setSupportsImages(false);
-          }
-        } catch (error) {
-          setSupportsImages(false);
-        }
-      } else {
-        // For custom AI providers, check if curl contains {{IMAGE}}
-        const provider = allAiProviders.find(
-          (p) => p.id === selectedAIProvider.provider
-        );
-        if (provider) {
-          const hasImageSupport = provider.curl?.includes("{{IMAGE}}") ?? false;
-          setSupportsImages(hasImageSupport);
-        } else {
-          setSupportsImages(true);
-        }
-      }
-    };
-
-    checkImageSupport();
-  }, [runningbordApiEnabled, selectedAIProvider.provider]);
+    // Image input needs an {{IMAGE}} slot in the provider's curl.
+    const provider = allAiProviders.find((p) => p.id === selectedAIProvider.provider);
+    setSupportsImages(provider ? (provider.curl?.includes("{{IMAGE}}") ?? false) : true);
+  }, [selectedAIProvider.provider]);
 
   // Persist selected providers (secrets to the keychain), debounced while typing.
   useEffect(() => {
@@ -627,16 +547,10 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     }
 
     // Update supportsImages immediately when provider changes
-    if (!runningbordApiEnabled) {
-      const selectedProvider = allAiProviders.find((p) => p.id === provider);
-      if (selectedProvider) {
-        const hasImageSupport =
-          selectedProvider.curl?.includes("{{IMAGE}}") ?? false;
-        setSupportsImages(hasImageSupport);
-      } else {
-        setSupportsImages(true);
-      }
-    }
+    const selectedProvider = allAiProviders.find((p) => p.id === provider);
+    setSupportsImages(
+      selectedProvider ? (selectedProvider.curl?.includes("{{IMAGE}}") ?? false) : true
+    );
 
     setSelectedAIProvider((prev) => ({
       ...prev,
@@ -708,43 +622,6 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     loadData();
   };
 
-  const setRunningbordApiEnabled = async (enabled: boolean) => {
-    setRunningbordApiEnabledState(enabled);
-    safeLocalStorage.setItem(STORAGE_KEYS.RUNNINGBORD_API_ENABLED, String(enabled));
-
-    if (enabled) {
-      try {
-        const storage = await invoke<{
-          selected_runningbord_model?: string;
-        }>("secure_storage_get");
-
-        if (storage.selected_runningbord_model) {
-          const model = JSON.parse(storage.selected_runningbord_model);
-          const hasImageSupport = model.modality?.includes("image") ?? false;
-          setSupportsImages(hasImageSupport);
-        } else {
-          // No model selected, assume no image support
-          setSupportsImages(false);
-        }
-      } catch (error) {
-        console.debug("Failed to check Runningbord model image support:", error);
-        setSupportsImages(false);
-      }
-    } else {
-      // Switching to regular provider - check if curl contains {{IMAGE}}
-      const provider = allAiProviders.find(
-        (p) => p.id === selectedAIProvider.provider
-      );
-      if (provider) {
-        const hasImageSupport = provider.curl?.includes("{{IMAGE}}") ?? false;
-        setSupportsImages(hasImageSupport);
-      } else {
-        setSupportsImages(true);
-      }
-    }
-
-    loadData();
-  };
 
   // Create the context value (extend IContextType accordingly)
   const value: IContextType = {
@@ -767,11 +644,6 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     toggleAppIconVisibility,
     toggleAlwaysOnTop,
     loadData,
-    runningbordApiEnabled,
-    setRunningbordApiEnabled,
-    hasActiveLicense,
-    setHasActiveLicense,
-    getActiveLicenseStatus,
     setCursorType,
     supportsImages,
     setSupportsImages,

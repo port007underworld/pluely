@@ -11,9 +11,7 @@ import {
 } from "./common.function";
 import { Message, TYPE_PROVIDER } from "@/types";
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
-import { Channel, invoke } from "@tauri-apps/api/core";
 import curl2Json from "@bany/curl-to-json";
-import { shouldUseRunningbordAPI } from "./runningbord.api";
 import {
   buildPersonalContextBlock,
   getResponseSettings,
@@ -99,104 +97,6 @@ function buildEnhancedSystemPrompt(baseSystemPrompt?: string): string {
 
   const personalContext = buildPersonalContextBlock();
   return personalContext ? `${prompts.join(" ")}\n\n${personalContext}` : prompts.join(" ");
-}
-
-type ChatStreamEvent = { event: "chunk"; data: string } | { event: "done" };
-
-// Runningbord (hosted) API: streamed over a per-request channel so chunks from
-// overlapping requests can't mix; aborting cancels the HTTP request in Rust.
-async function* fetchRunningbordAIResponse(params: {
-  requestId: string;
-  systemPrompt?: string;
-  userMessage: string;
-  imagesBase64?: string[];
-  audioBase64?: string;
-  history?: Message[];
-  signal?: AbortSignal;
-}): AsyncIterable<string> {
-  const {
-    requestId,
-    systemPrompt,
-    userMessage,
-    imagesBase64 = [],
-    audioBase64,
-    history = [],
-    signal,
-  } = params;
-
-  if (signal?.aborted) return;
-
-  const historyString =
-    history.length > 0
-      ? JSON.stringify(
-          history.map((msg) => ({
-            role: msg.role,
-            content: [{ type: "text", text: msg.content }],
-          }))
-        )
-      : undefined;
-
-  const queue: string[] = [];
-  let done = false;
-  let failure: unknown = null;
-  let wake: (() => void) | null = null;
-  const notify = () => {
-    wake?.();
-    wake = null;
-  };
-
-  const channel = new Channel<ChatStreamEvent>();
-  channel.onmessage = (message) => {
-    if (message.event === "chunk") queue.push(message.data);
-    else done = true;
-    notify();
-  };
-
-  const cancel = () => {
-    invoke("chat_stream_cancel", { requestId }).catch(() => {});
-    notify();
-  };
-  signal?.addEventListener("abort", cancel, { once: true });
-
-  invoke("chat_stream_response", {
-    requestId,
-    onEvent: channel,
-    userMessage,
-    systemPrompt,
-    imageBase64:
-      imagesBase64.length === 0
-        ? undefined
-        : imagesBase64.length === 1
-        ? imagesBase64[0]
-        : imagesBase64,
-    audioBase64,
-    history: historyString,
-  }).catch((error) => {
-    failure = error;
-    notify();
-  });
-
-  try {
-    while (true) {
-      if (signal?.aborted) return;
-      if (queue.length > 0) {
-        yield queue.shift()!;
-        continue;
-      }
-      if (failure !== null) {
-        const message = failure instanceof Error ? failure.message : String(failure);
-        throw new Error(`Runningbord API Error: ${message} (requestId: ${requestId})`);
-      }
-      if (done) return;
-      await new Promise<void>((resolve) => {
-        wake = resolve;
-      });
-    }
-  } finally {
-    signal?.removeEventListener("abort", cancel);
-    // Consumer stopped early (superseded request): stop the upstream request too.
-    if (!done && failure === null) cancel();
-  }
 }
 
 export interface AIRequestParams {
@@ -300,21 +200,6 @@ async function* streamAIResponse(
     }
 
     const enhancedSystemPrompt = buildEnhancedSystemPrompt(systemPrompt);
-
-    // Check if we should use Runningbord API instead
-    const useRunningbordAPI = await shouldUseRunningbordAPI();
-    if (useRunningbordAPI) {
-      yield* fetchRunningbordAIResponse({
-        requestId,
-        systemPrompt: enhancedSystemPrompt,
-        userMessage,
-        imagesBase64,
-        audioBase64,
-        history,
-        signal,
-      });
-      return;
-    }
 
     if (!provider) {
       throw new Error(`Provider not provided`);

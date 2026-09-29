@@ -11,10 +11,8 @@ import {
   UserRoundIcon,
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
-import { useApp } from "@/contexts";
 
 export const useMenuItems = () => {
-  const { hasActiveLicense } = useApp();
 
   const menu: {
     icon: React.ElementType;
@@ -71,12 +69,6 @@ export const useMenuItems = () => {
   ];
 
   const footerItems = [
-    ...(hasActiveLicense
-      ? [
-
-        ]
-      : []),
-
     {
       icon: PowerIcon,
       label: "Quit runningbord",

@@ -11,7 +11,6 @@ export const STORAGE_KEYS = {
   SELECTED_AI_PROVIDER: "curl_selected_ai_provider",
   SELECTED_STT_PROVIDER: "curl_selected_stt_provider",
   CUSTOMIZABLE: "customizable",
-  RUNNINGBORD_API_ENABLED: "runningbord_api_enabled",
   SHORTCUTS: "shortcuts",
   RESPONSE_SETTINGS: "response_settings",
   SUPPORTS_IMAGES: "supports_images",

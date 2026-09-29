@@ -5,7 +5,6 @@ import {
   TranscriptionEngine,
 } from "../storage/transcription.storage";
 import { fetchSTT } from "./stt.function";
-import { shouldUseRunningbordAPI } from "./runningbord.api";
 
 export interface TranscriptSegment {
   /** "system" = other participants (computer audio output), "mic" = the user. */
@@ -101,11 +100,9 @@ function base64ToBlob(base64: string, type: string): Blob {
 
 /**
  * Whether raw audio can go to the selected AI provider: it must have an
- * {{AUDIO}} slot in its curl. The hosted API is treated as text-only because
- * its audio support is unverified.
+ * {{AUDIO}} slot in its curl.
  */
 export async function aiProviderAcceptsAudio(provider?: TYPE_PROVIDER): Promise<boolean> {
-  if (await shouldUseRunningbordAPI()) return false;
   return Boolean(provider?.curl.includes("{{AUDIO}}"));
 }
 

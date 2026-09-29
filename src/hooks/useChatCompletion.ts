@@ -8,7 +8,6 @@ import {
   getConversationSettings,
   getConversationById,
   generateConversationTitle,
-  shouldUseRunningbordAPI,
   MESSAGE_ID_OFFSET,
   generateMessageId,
   generateRequestId,
@@ -61,7 +60,6 @@ export const useChatCompletion = (
     systemPrompt,
     screenshotConfiguration,
     setScreenshotConfiguration,
-    hasActiveLicense,
 
   } = useApp();
 
@@ -200,10 +198,7 @@ export const useChatCompletion = (
           .map(f => f.base64)[0]; // Gemini handles one audio file per turn in this logic
 
         // If we captured a screenshot earlier in this flow, include it as well
-
-        const useRunningbordAPI = await shouldUseRunningbordAPI();
-        // Check if AI provider is configured
-        if (!selectedAIProvider.provider && !useRunningbordAPI) {
+        if (!selectedAIProvider.provider) {
           setState((prev) => ({
             ...prev,
             error: "Please select an AI provider in settings",
@@ -214,7 +209,7 @@ export const useChatCompletion = (
         const provider = allAiProviders.find(
           (p) => p.id === selectedAIProvider.provider
         );
-        if (!provider && !useRunningbordAPI) {
+        if (!provider) {
           setState((prev) => ({
             ...prev,
             error: "Invalid provider selected",
@@ -254,7 +249,7 @@ export const useChatCompletion = (
         try {
           // Use the fetchAIResponse function with signal
           for await (const chunk of fetchAIResponse({
-            provider: useRunningbordAPI ? undefined : provider,
+            provider,
             selectedProvider: selectedAIProvider,
             systemPrompt: systemPrompt || undefined,
             history: messageHistory,
@@ -601,16 +596,6 @@ export const useChatCompletion = (
         screenshotInitiatedByThisContext.current = false;
       } else {
         // Selection Mode: Open overlay to select an area
-        // Only allow if user has active license
-        if (!hasActiveLicense) {
-          setState((prev) => ({
-            ...prev,
-            error: "Selection mode requires an active license",
-          }));
-          setIsScreenshotLoading(false);
-          screenshotInitiatedByThisContext.current = false;
-          return;
-        }
         isProcessingScreenshotRef.current = false;
         await invoke("start_screen_capture");
       }
@@ -626,7 +611,7 @@ export const useChatCompletion = (
         setIsScreenshotLoading(false);
       }
     }
-  }, [handleScreenshotSubmit, hasActiveLicense]);
+  }, [handleScreenshotSubmit]);
 
   const processSelectionRef = useRef<((base64: string) => Promise<void>) | null>(null);
   processSelectionRef.current = async (base64: string) => {
@@ -718,6 +703,5 @@ export const useChatCompletion = (
     captureScreenshot,
     isScreenshotLoading,
     messagesEndRef,
-    hasActiveLicense,
   };
 };

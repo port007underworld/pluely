@@ -1,6 +1,4 @@
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-mod activate;
-mod api;
 mod capture;
 mod db;
 mod documents;
@@ -21,7 +19,6 @@ mod system_audio_windows;
 
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Manager, WebviewWindow};
-use tauri_plugin_posthog::{init as posthog_init, PostHogConfig, PostHogOptions};
 use capture::CaptureState;
 use system_audio::SystemAudioState;
 
@@ -36,8 +33,6 @@ fn get_app_version() -> String {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // Get PostHog API key
-    let posthog_api_key = option_env!("POSTHOG_API_KEY").unwrap_or("").to_string();
     let mut builder = tauri::Builder::default()
         .plugin(
             tauri_plugin_sql::Builder::default()
@@ -53,28 +48,12 @@ pub fn run() {
             is_hidden: Mutex::new(false),
         })
         .manage(shortcuts::RegisteredShortcuts::default())
-        .manage(shortcuts::LicenseState::default())
         .manage(shortcuts::MoveWindowState::default())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_http::init())
-        .plugin(tauri_plugin_keychain::init())
-        .plugin(tauri_plugin_shell::init()) // Add shell plugin
-        .plugin(posthog_init(PostHogConfig {
-            api_key: posthog_api_key,
-            options: Some(PostHogOptions {
-                // disable session recording
-                disable_session_recording: Some(true),
-                // disable pageview
-                capture_pageview: Some(false),
-                // disable pageleave
-                capture_pageleave: Some(false),
-                ..Default::default()
-            }),
-            ..Default::default()
-        }))
-        .plugin(tauri_plugin_machine_uid::init());
+        .plugin(tauri_plugin_shell::init());
     #[cfg(target_os = "macos")]
     {
         builder = builder.plugin(tauri_nspanel::init());
@@ -94,18 +73,9 @@ pub fn run() {
             shortcuts::get_registered_shortcuts,
             shortcuts::update_shortcuts,
             shortcuts::validate_shortcut_key,
-            shortcuts::set_license_status,
             shortcuts::set_app_icon_visibility,
             shortcuts::set_always_on_top,
             shortcuts::exit_app,
-            activate::activate_license_api,
-            activate::deactivate_license_api,
-            activate::validate_license_api,
-            activate::mask_license_key_cmd,
-            activate::get_checkout_url,
-            activate::secure_storage_save,
-            activate::secure_storage_get,
-            activate::secure_storage_remove,
             system_audio::system_audio_start,
             system_audio::system_audio_stop,
             system_audio::system_audio_get_recent_base64,
@@ -135,14 +105,6 @@ pub fn run() {
             secrets::secret_get,
             secrets::secret_set,
             secrets::secret_delete,
-            api::transcribe_audio,
-            api::chat_stream_response,
-            api::chat_stream_cancel,
-            api::fetch_models,
-            api::fetch_prompts,
-            api::create_system_prompt,
-            api::check_license_status,
-            api::get_activity,
         ])
         .setup(|app| {
             // Setup main window positioning

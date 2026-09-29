@@ -4,37 +4,9 @@ import {
   blobToBase64,
 } from "./common.function";
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
-import { invoke } from "@tauri-apps/api/core";
 
 import { TYPE_PROVIDER } from "@/types";
 import curl2Json from "@bany/curl-to-json";
-import { shouldUseRunningbordAPI } from "./runningbord.api";
-
-// Runningbord STT function
-async function fetchRunningbordSTT(audio: File | Blob): Promise<string> {
-  try {
-    // Convert audio to base64
-    const audioBase64 = await blobToBase64(audio);
-
-    // Call Tauri command
-    const response = await invoke<{
-      success: boolean;
-      transcription?: string;
-      error?: string;
-    }>("transcribe_audio", {
-      audioBase64,
-    });
-
-    if (response.success && response.transcription) {
-      return response.transcription;
-    } else {
-      return response.error || "Transcription failed";
-    }
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    return `Runningbord STT Error: ${errorMessage}`;
-  }
-}
 
 export interface STTParams {
   provider: TYPE_PROVIDER | undefined;
@@ -54,11 +26,6 @@ export async function fetchSTT(params: STTParams): Promise<string> {
   try {
     const { provider, selectedProvider, audio } = params;
 
-    // Check if we should use Runningbord API instead
-    const useRunningbordAPI = await shouldUseRunningbordAPI();
-    if (useRunningbordAPI) {
-      return await fetchRunningbordSTT(audio);
-    }
 
     if (!provider) throw new Error("Provider not provided");
     if (!selectedProvider) throw new Error("Selected provider not provided");

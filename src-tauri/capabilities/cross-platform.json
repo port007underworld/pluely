@@ -14,10 +14,6 @@
     "opener:default",
     "updater:default",
     "process:allow-restart",
-    "keychain:default",
-    "keychain:allow-get-item",
-    "keychain:allow-save-item",
-    "keychain:allow-remove-item",
     "global-shortcut:allow-is-registered",
     "global-shortcut:allow-register",
     "global-shortcut:allow-unregister",
@@ -25,8 +21,6 @@
     "core:window:allow-start-dragging",
     "sql:default",
     "sql:allow-execute",
-    "posthog:default",
-    "posthog:allow-capture",
     {
       "identifier": "http:default",
       "allow": [

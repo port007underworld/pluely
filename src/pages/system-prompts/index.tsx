@@ -23,7 +23,6 @@ import {
 } from "lucide-react";
 import { DeleteSystemPrompt } from "./Delete";
 import { CreateEditDialog } from "./CreateEditDialog";
-import { RunningbordPrompts } from "./RunningbordPrompts";
 import { useState } from "react";
 import { PageLayout } from "@/layouts";
 import { DEFAULT_PRESET_ID, PROMPT_PRESETS } from "@/config";
@@ -135,20 +134,6 @@ const SystemPrompts = () => {
     await deletePrompt(id);
     setForm({ name: "", prompt: "" });
     setIsDeleteDialogOpen(false);
-  };
-
-  /**
-   * Handle AI generation
-   */
-  const handleGenerate = (
-    generatedPrompt: string,
-    generatedPromptName: string
-  ) => {
-    setForm((prev) => ({
-      ...prev,
-      prompt: generatedPrompt,
-      name: generatedPromptName,
-    }));
   };
 
   /**
@@ -340,7 +325,6 @@ const SystemPrompts = () => {
         form={form}
         setForm={setForm}
         onSave={handleSave}
-        onGenerate={handleGenerate}
         isEditing={!!form.id}
         isSaving={isSaving}
       />
@@ -353,9 +337,6 @@ const SystemPrompts = () => {
         promptName={form.name}
         onDelete={handleDeleteConfirm}
       />
-
-      {/* Runningbord Default Prompts */}
-      <RunningbordPrompts />
     </PageLayout>
   );
 };

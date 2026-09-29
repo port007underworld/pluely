@@ -46,11 +46,6 @@ export type IContextType = {
   toggleAppIconVisibility: (isVisible: boolean) => Promise<void>;
   toggleAlwaysOnTop: (isEnabled: boolean) => Promise<void>;
   loadData: () => void;
-  runningbordApiEnabled: boolean;
-  setRunningbordApiEnabled: (enabled: boolean) => Promise<void>;
-  hasActiveLicense: boolean;
-  setHasActiveLicense: Dispatch<SetStateAction<boolean>>;
-  getActiveLicenseStatus: () => Promise<void>;
   setCursorType: (type: CursorType) => void;
   supportsImages: boolean;
   setSupportsImages: (value: boolean) => void;

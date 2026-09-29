@@ -1,4 +1,3 @@
-export { default as Dashboard } from "./dashboard";
 export { default as Chats } from "./chats";
 export { default as ViewChat } from "./chats/components/View";
 export { default as App } from "./app";

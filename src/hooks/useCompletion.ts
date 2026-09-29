@@ -4,14 +4,10 @@ import { useGlobalShortcuts } from "@/hooks";
 import { MAX_FILES, STORAGE_KEYS } from "@/config";
 import { useApp } from "@/contexts";
 import {
-  emitShortcutPipelineMetrics,
-  estimateBase64Bytes,
-  estimateUtf8Bytes,
   fetchAIResponse,
   appendMessages,
   getConversationById,
   generateConversationTitle,
-  shouldUseRunningbordAPI,
   MESSAGE_ID_OFFSET,
   generateConversationId,
   generateMessageId,
@@ -68,14 +64,6 @@ interface ContextInfo {
   sentMessages: number;
   totalMessages: number;
   estimatedTokens: number;
-}
-
-interface ShortcutRequestContext {
-  triggerStartedAt: number;
-  triggerSource: "fullscreen" | "selection";
-  screenshotCaptureMs?: number;
-  audioFetchMs?: number;
-  customPromptUsed?: boolean;
 }
 
 export const useCompletion = () => {
@@ -365,9 +353,7 @@ export const useCompletion = () => {
 
       try {
         const messageHistory = buildRequestHistory(messageForRequest);
-
-        const useRunningbordAPI = await shouldUseRunningbordAPI();
-        if (!selectedAIProvider.provider && !useRunningbordAPI) {
+        if (!selectedAIProvider.provider) {
           setState((prev) => ({
             ...prev,
             error: "Please select an AI provider in settings",
@@ -378,7 +364,7 @@ export const useCompletion = () => {
         const provider = allAiProviders.find(
           (p) => p.id === selectedAIProvider.provider
         );
-        if (!provider && !useRunningbordAPI) {
+        if (!provider) {
           setState((prev) => ({
             ...prev,
             error: "Invalid provider selected",
@@ -398,7 +384,7 @@ export const useCompletion = () => {
 
         try {
           for await (const chunk of fetchAIResponse({
-            provider: useRunningbordAPI ? undefined : provider,
+            provider,
             selectedProvider: getEffectiveProvider(),
             systemPrompt: systemPrompt || undefined,
             history: messageHistory,
@@ -660,8 +646,7 @@ export const useCompletion = () => {
       base64: string,
       prompt?: string,
       audioBase64?: string | undefined,
-      audioTranscription?: string | null,
-      requestContext?: ShortcutRequestContext
+      audioTranscription?: string | null
     ) => {
       if (state.attachedFiles.length >= MAX_FILES) {
         setState((prev) => ({
@@ -697,8 +682,6 @@ export const useCompletion = () => {
           // Generate unique request ID
           const requestId = generateRequestId();
           currentRequestIdRef.current = requestId;
-          const requestStartedAt = performance.now();
-          let firstChunkAt: number | null = null;
           const promptForRequest = audioTranscription?.trim()
             ? `${prompt}\n\n${audioTranscription}`
             : prompt;
@@ -715,10 +698,7 @@ export const useCompletion = () => {
             const messageHistory = buildRequestHistory(promptForRequest);
 
             let fullResponse = "";
-
-            const useRunningbordAPI = await shouldUseRunningbordAPI();
-            // Check if AI provider is configured
-            if (!selectedAIProvider.provider && !useRunningbordAPI) {
+            if (!selectedAIProvider.provider) {
               setState((prev) => ({
                 ...prev,
                 error: "Please select an AI provider in settings",
@@ -729,7 +709,7 @@ export const useCompletion = () => {
             const provider = allAiProviders.find(
               (p) => p.id === selectedAIProvider.provider
             );
-            if (!provider && !useRunningbordAPI) {
+            if (!provider) {
               setState((prev) => ({
                 ...prev,
                 error: "Invalid provider selected",
@@ -748,7 +728,7 @@ export const useCompletion = () => {
 
             // Use the fetchAIResponse function with image and signal
             for await (const chunk of fetchAIResponse({
-              provider: useRunningbordAPI ? undefined : provider,
+              provider,
               selectedProvider: getEffectiveProvider(),
               systemPrompt: systemPrompt || undefined,
               history: messageHistory,
@@ -758,9 +738,6 @@ export const useCompletion = () => {
               signal,
               requestId,
             })) {
-              if (firstChunkAt === null && chunk) {
-                firstChunkAt = performance.now();
-              }
 
               // Only update if this is still the current request
               if (currentRequestIdRef.current !== requestId || signal.aborted) {
@@ -805,34 +782,6 @@ export const useCompletion = () => {
               }));
             }
           } finally {
-            const completedAt = performance.now();
-            const imagePayloadBytes = estimateBase64Bytes(base64);
-            const audioPayloadBytes = estimateBase64Bytes(audioBase64 || "");
-            const textPayloadBytes = estimateUtf8Bytes(promptForRequest || "");
-            const totalPayloadBytes =
-              imagePayloadBytes + audioPayloadBytes + textPayloadBytes;
-
-            await emitShortcutPipelineMetrics({
-              requestId,
-              triggerSource: requestContext?.triggerSource ?? "fullscreen",
-              customPromptUsed:
-                requestContext?.customPromptUsed ??
-                prompt.trim() !== screenshotConfigRef.current.autoPrompt.trim(),
-              screenshotCaptureMs: requestContext?.screenshotCaptureMs,
-              audioFetchMs: requestContext?.audioFetchMs,
-              timeToFirstChunkMs:
-                firstChunkAt === null ? undefined : firstChunkAt - requestStartedAt,
-              requestRoundTripMs: completedAt - requestStartedAt,
-              totalPipelineMs:
-                completedAt -
-                (requestContext?.triggerStartedAt ?? requestStartedAt),
-              imagePayloadBytes,
-              audioPayloadBytes,
-              textPayloadBytes,
-              totalPayloadBytes,
-              hadAudio: Boolean(audioBase64),
-            });
-
             // Only update loading state if this is still the current request
             if (currentRequestIdRef.current === requestId && !signal.aborted) {
               setState((prev) => ({ ...prev, isLoading: false }));
@@ -1047,7 +996,6 @@ export const useCompletion = () => {
     if (!handleScreenshotSubmit) return;
 
     const config = screenshotConfigRef.current;
-    const triggerStartedAt = performance.now();
     screenshotInitiatedByThisContext.current = true;
     setIsScreenshotLoading(true);
 
@@ -1060,13 +1008,11 @@ export const useCompletion = () => {
       }
 
       if (config.enabled) {
-        const screenshotCaptureStart = performance.now();
         const base64 = await invoke("capture_to_base64", {
           compressionEnabled: config.compressionEnabled ?? true,
           compressionQuality: config.compressionQuality ?? 75,
           compressionMaxDimension: config.compressionMaxDimension ?? 1600,
         });
-        const screenshotCaptureMs = performance.now() - screenshotCaptureStart;
 
         const audio = await captureShortcutAudio();
 
@@ -1075,14 +1021,7 @@ export const useCompletion = () => {
             base64 as string,
             config.autoPrompt,
             audio?.audioBase64,
-            audio?.transcript,
-            {
-              triggerStartedAt,
-              triggerSource: "fullscreen",
-              screenshotCaptureMs,
-              audioFetchMs: audio?.fetchMs,
-              customPromptUsed: false,
-            }
+            audio?.transcript
           );
         } else if (config.mode === "manual") {
           await handleScreenshotSubmit(
@@ -1115,7 +1054,6 @@ export const useCompletion = () => {
   const processSelectionRef = useRef<((base64: string) => Promise<void>) | null>(null);
   processSelectionRef.current = async (base64: string) => {
     const config = screenshotConfigRef.current;
-    const triggerStartedAt = performance.now();
 
     try {
       const audio = await captureShortcutAudio();
@@ -1125,13 +1063,7 @@ export const useCompletion = () => {
           base64,
           config.autoPrompt,
           audio?.audioBase64,
-          audio?.transcript,
-          {
-            triggerStartedAt,
-            triggerSource: "selection",
-            audioFetchMs: audio?.fetchMs,
-            customPromptUsed: false,
-          }
+          audio?.transcript
         );
       } else if (config.mode === "manual") {
         await handleScreenshotSubmit(
