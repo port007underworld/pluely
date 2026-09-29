@@ -31,7 +31,7 @@ export const ResponseLength = () => {
         isMainTitle
       />
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 @2xl:grid-cols-3 gap-4">
         {RESPONSE_LENGTHS.map((length) => (
           <Card
             key={length.id}

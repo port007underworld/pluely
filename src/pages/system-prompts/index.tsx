@@ -187,7 +187,7 @@ const SystemPrompts = () => {
             details on screen. Customize one to make an editable copy in your prompts.
           </p>
         </div>
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <div className="grid grid-cols-1 gap-3 @lg:grid-cols-2 @4xl:grid-cols-4">
           {PROMPT_PRESETS.map((preset) => {
             const isSelected = selectedPresetId === preset.id;
             return (
@@ -236,7 +236,7 @@ const SystemPrompts = () => {
 
       {/* Search Bar */}
       <div className="flex items-center gap-2 justify-between">
-        <div className="relative w-full md:w-1/2 lg:w-1/3 select-none">
+        <div className="relative w-full @lg:w-1/2 @3xl:w-1/3 select-none">
           <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             type="text"
@@ -259,7 +259,7 @@ const SystemPrompts = () => {
           description="Create a new prompt to get started"
         />
       ) : (
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 2xl:grid-cols-4 pb-4">
+        <div className="grid grid-cols-1 gap-4 @lg:grid-cols-2 @2xl:grid-cols-3 @4xl:grid-cols-4 pb-4">
           {filteredPrompts.reverse().map((prompt) => {
             const isSelected = selectedPromptId === prompt.id;
             return (

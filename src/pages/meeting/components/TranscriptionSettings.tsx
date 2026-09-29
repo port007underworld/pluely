@@ -318,7 +318,7 @@ export const TranscriptionSettings = () => {
         isMainTitle
       />
 
-      <div className="grid gap-2 sm:grid-cols-3" role="radiogroup">
+      <div className="grid gap-2 @2xl:grid-cols-3" role="radiogroup">
         {ENGINES.map((engine) => {
           const selected = config.engine === engine.id;
           const Icon = engine.icon;

@@ -30,7 +30,7 @@ function OptionCards<T extends string>({
   onChange: (value: T) => void;
 }) {
   return (
-    <div className="grid gap-2 sm:grid-cols-2" role="radiogroup">
+    <div className="grid gap-2 @lg:grid-cols-2" role="radiogroup">
       {options.map((option) => {
         const selected = option.value === value;
         const Icon = option.icon;
@@ -187,7 +187,7 @@ export const ScreenshotConfigs = ({
 
           {screenshotConfiguration.compressionEnabled && (
             <>
-              <div className="grid sm:grid-cols-2 gap-2">
+              <div className="grid @lg:grid-cols-2 gap-2">
                 <div className="space-y-1">
                   <Label className="text-sm font-medium">JPEG quality (1–100)</Label>
                   <Input

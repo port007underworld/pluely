@@ -243,7 +243,7 @@ export const RunningbordPrompts = () => {
       </div>
 
       <div
-        className={`grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 2xl:grid-cols-4 pb-4 ${
+        className={`grid grid-cols-1 gap-4 @lg:grid-cols-2 @2xl:grid-cols-3 @4xl:grid-cols-4 pb-4 ${
           !hasActiveLicense ? "opacity-60" : ""
         }`}
       >
