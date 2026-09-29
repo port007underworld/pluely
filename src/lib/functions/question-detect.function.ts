@@ -15,8 +15,8 @@ export function looksLikeQuestion(text: string): boolean {
 }
 
 export interface QuestionDetectorOptions {
-  /** Called with the question once the speaker has paused. */
-  onQuestion: (question: string) => void;
+  /** Called with the question once the speaker has paused, and when they stopped speaking. */
+  onQuestion: (question: string, endedAt: number) => void;
   /** Silence after the question before answering, so follow-on clauses are included. */
   pauseMs?: number;
   /** Safety cap against noisy audio: most answers in any 60 seconds. */
@@ -36,6 +36,7 @@ export function createQuestionDetector({
   let pending: string[] = [];
   let timer: ReturnType<typeof setTimeout> | undefined;
   let fired: number[] = [];
+  let quietSinceLast = 0;
 
   const fire = () => {
     timer = undefined;
@@ -50,25 +51,31 @@ export function createQuestionDetector({
     pending = [];
     if (!question) return;
     fired.push(now);
-    onQuestion(question);
+    onQuestion(question, quietSinceLast);
   };
 
-  const arm = () => {
+  const arm = (quietSince = Date.now()) => {
     clearTimeout(timer);
-    timer = setTimeout(fire, pauseMs);
+    quietSinceLast = quietSince;
+    const elapsed = Math.min(Math.max(0, Date.now() - quietSince), pauseMs);
+    timer = setTimeout(fire, pauseMs - elapsed);
   };
 
   return {
-    /** A finished line from another participant. */
-    line(text: string) {
+    /**
+     * A finished line from another participant. `endedAt` (ms since epoch) is
+     * when they stopped speaking: transcription takes a moment, so part of the
+     * pause has usually passed by the time the line arrives.
+     */
+    line(text: string, endedAt = Date.now()) {
       if (looksLikeQuestion(text)) {
         pending.push(text.trim());
-        arm();
+        arm(endedAt);
       } else if (pending.length > 0) {
         // They kept talking: keep a little of it with the question (it may be
         // context or a rephrase), but don't let a monologue grow without bound.
         if (pending.length < 4) pending.push(text.trim());
-        arm();
+        arm(endedAt);
       }
     },
     /** They're still mid-sentence: hold off answering. */

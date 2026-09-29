@@ -624,6 +624,7 @@ export const useCompletion = () => {
       audioBase64,
       files,
       followUps = true,
+      steps,
     }: {
       displayPrompt: string;
       userMessage: string;
@@ -632,6 +633,8 @@ export const useCompletion = () => {
       files: AttachedFile[];
       /** Ask for follow-up questions (off for requests that are themselves questions). */
       followUps?: boolean;
+      /** Timings of the steps that led to this request, for Recent Requests. */
+      steps?: { label: string; ms: number }[];
     }) => {
       const resolved = resolveAIProvider(selectedAIProvider, allAiProviders);
       if ("error" in resolved) {
@@ -668,6 +671,7 @@ export const useCompletion = () => {
           audioBase64,
           signal,
           requestId,
+          steps,
         })) {
           if (currentRequestIdRef.current !== requestId || signal.aborted) return;
           fullResponse += chunk;
@@ -894,7 +898,7 @@ export const useCompletion = () => {
     return () => window.removeEventListener("keydown", handleToggleShortcut);
   }, [isPopoverOpen]);
 
-  const captureShortcutAudio = useCallback(async () => {
+  const captureShortcutAudio = useCallback(async ({ finishedLinesOnly = false } = {}) => {
     if (!systemAudioDaemonConfig.enabled) {
       setAudioNotice(null);
       return undefined;
@@ -908,6 +912,7 @@ export const useCompletion = () => {
       aiAcceptsAudio: await aiProviderAcceptsAudio(
         allAiProviders.find((p) => p.id === selectedAIProvider.provider)
       ),
+      finishedLinesOnly,
     });
     setAudioNotice(capture.warning ?? null);
     return capture;
@@ -991,54 +996,97 @@ export const useCompletion = () => {
   const queuedQuestionRef = useRef<string | null>(null);
   const autoAnsweringRef = useRef(false);
 
-  const autoAnswerRef = useRef<(question: string) => Promise<void>>(async () => {});
-  autoAnswerRef.current = async (question: string) => {
+  const queuedEndedAtRef = useRef(0);
+  const autoAnswerRef = useRef<(question: string, endedAt: number) => Promise<void>>(async () => {});
+  autoAnswerRef.current = async (question: string, endedAt: number) => {
     const current = latestStateRef.current;
     // Don't overwrite something the user is typing.
     if (current.input.trim() && !current.isLoading) return;
     if (current.isLoading || isScreenshotLoading || autoAnsweringRef.current) {
       queuedQuestionRef.current = question;
+      queuedEndedAtRef.current = endedAt;
       return;
     }
     autoAnsweringRef.current = true;
     try {
-      await answerQuestion(question);
+      await answerQuestion(question, endedAt);
     } finally {
       autoAnsweringRef.current = false;
     }
     const next = queuedQuestionRef.current;
     queuedQuestionRef.current = null;
-    if (next) void autoAnswerRef.current(next);
+    if (next) void autoAnswerRef.current(next, queuedEndedAtRef.current);
   };
 
-  const answerQuestion = async (question: string) => {
-    const audio = await captureShortcutAudio();
-    let screenshot: string | undefined;
-    if (transcriptionConfig.autoAnswerScreenshot && (await ensureScreenRecordingPermission())) {
-      try {
-        screenshot = await captureFullScreen(screenshotConfigRef.current);
-      } catch (error) {
-        console.warn("Auto-answer screenshot failed:", error);
-      }
+  const answerQuestion = async (question: string, endedAt: number) => {
+    const displayPrompt = `Auto-answer: ${question}`;
+    const detectedAt = Date.now();
+    // Open the panel right away; the transcript and screenshot load meanwhile.
+    setState((prev) => ({ ...prev, input: displayPrompt, isLoading: true, error: null, response: "" }));
+
+    const timed = async <T,>(work: Promise<T>) => {
+      const started = performance.now();
+      const value = await work;
+      return { value, ms: Math.round(performance.now() - started) };
+    };
+    const wantScreenshot = transcriptionConfig.autoAnswerScreenshot;
+    let audio: Awaited<ReturnType<typeof captureShortcutAudio>>;
+    let screenshot: { value: string | undefined; ms: number } | undefined;
+    let transcriptMs = 0;
+    try {
+      // The question is already transcribed, so don't wait on speech still in progress.
+      const [audioResult, screenshotResult] = await Promise.all([
+        timed(captureShortcutAudio({ finishedLinesOnly: true })),
+        wantScreenshot
+          ? timed(
+              (async () => {
+                if (!(await ensureScreenRecordingPermission())) return undefined;
+                return captureFullScreen(screenshotConfigRef.current).catch((error) => {
+                  console.warn("Auto-answer screenshot failed:", error);
+                  return undefined;
+                });
+              })()
+            )
+          : undefined,
+      ]);
+      audio = audioResult.value;
+      transcriptMs = audioResult.ms;
+      screenshot = screenshotResult;
+    } catch (error) {
+      setState((prev) => ({
+        ...prev,
+        isLoading: false,
+        error: error instanceof Error ? error.message : String(error),
+      }));
+      return;
     }
+
+    const image = screenshot?.value;
     const prompt = autoAnswerPrompt(question);
-    const files: AttachedFile[] = screenshot
+    const files: AttachedFile[] = image
       ? [
           {
             id: `${Date.now()}`,
             name: `screenshot_${Date.now()}.png`,
             type: "image/png",
-            base64: screenshot,
-            size: screenshot.length,
+            base64: image,
+            size: image.length,
           },
         ]
       : [];
+    const steps = [
+      { label: "detected", ms: Math.max(0, detectedAt - endedAt) },
+      { label: "transcript", ms: transcriptMs },
+      ...(screenshot ? [{ label: "screenshot (parallel)", ms: screenshot.ms }] : []),
+      { label: "prepared", ms: Math.max(0, Date.now() - detectedAt - transcriptMs) },
+    ];
     return sendDirect({
-      displayPrompt: `Auto-answer: ${question}`,
+      displayPrompt,
       userMessage: audio?.transcript?.trim() ? `${prompt}\n\n${audio.transcript}` : prompt,
-      imagesBase64: screenshot ? [screenshot] : undefined,
+      imagesBase64: image ? [image] : undefined,
       audioBase64: audio?.audioBase64,
       files,
+      steps,
     });
   };
 
@@ -1046,13 +1094,13 @@ export const useCompletion = () => {
     if (state.isLoading || autoAnsweringRef.current || !queuedQuestionRef.current) return;
     const next = queuedQuestionRef.current;
     queuedQuestionRef.current = null;
-    void autoAnswerRef.current(next);
+    void autoAnswerRef.current(next, queuedEndedAtRef.current);
   }, [state.isLoading]);
 
   useEffect(() => {
     if (!autoAnswerEnabled) return;
     const detector = createQuestionDetector({
-      onQuestion: (question) => void autoAnswerRef.current(question),
+      onQuestion: (question, endedAt) => void autoAnswerRef.current(question, endedAt),
       pauseMs: transcriptionConfig.autoAnswerDelayMs,
     });
     let cancelled = false;
@@ -1063,8 +1111,8 @@ export const useCompletion = () => {
         else unlisteners.push(fn);
       });
     // Only the other participants' audio: the user's own questions aren't answered.
-    subscribe<{ source: string; text: string }>("live-transcript-segment", (segment) => {
-      if (segment.source === "system") detector.line(segment.text);
+    subscribe<{ source: string; text: string; endMs: number }>("live-transcript-segment", (segment) => {
+      if (segment.source === "system") detector.line(segment.text, segment.endMs);
     });
     subscribe<{ source: string }>("live-transcript-partial", (partial) => {
       if (partial.source === "system") detector.speaking();

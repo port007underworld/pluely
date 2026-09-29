@@ -166,8 +166,13 @@ export async function captureMeetingAudio(options: {
   sttSelection?: { provider: string; variables: Record<string, string> };
   /** Whether the selected AI provider takes audio input ({{AUDIO}} in its curl). */
   aiAcceptsAudio: boolean;
+  /**
+   * Live transcription only: use lines that are already transcribed instead of
+   * also transcribing speech in progress. Faster; for automatic answers.
+   */
+  finishedLinesOnly?: boolean;
 }): Promise<MeetingAudioCapture> {
-  const { windowSeconds, sttProvider, sttSelection, aiAcceptsAudio } = options;
+  const { windowSeconds, sttProvider, sttSelection, aiAcceptsAudio, finishedLinesOnly } = options;
   const config = getTranscriptionConfig();
   const started = performance.now();
   const done = (
@@ -183,6 +188,7 @@ export async function captureMeetingAudio(options: {
         try {
           result = await invoke<LocalTranscriptResult>("live_transcript_get", {
             windowSeconds: config.transcriptWindowSeconds,
+            finalize: !finishedLinesOnly,
           });
           window = config.transcriptWindowSeconds;
         } catch {

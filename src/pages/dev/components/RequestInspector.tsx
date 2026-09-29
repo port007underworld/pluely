@@ -95,6 +95,18 @@ const Row = ({ entry }: { entry: RequestLogEntry }) => {
               {entry.timeToFirstChunkMs !== undefined ? `${entry.timeToFirstChunkMs} ms` : "—"},
               total {entry.totalMs} ms, {entry.responseChars} chars
             </dd>
+            {entry.steps && entry.steps.length > 0 && (
+              <>
+                <dt className="text-muted-foreground">Before sending</dt>
+                <dd>
+                  {entry.steps.map((step) => `${step.label} ${step.ms} ms`).join(" → ")}
+                  {entry.timeToFirstChunkMs !== undefined &&
+                    ` → first text ${entry.timeToFirstChunkMs} ms (speech ended to first text: ${
+                      entry.steps.reduce((sum, step) => sum + step.ms, 0) + entry.timeToFirstChunkMs
+                    } ms)`}
+                </dd>
+              </>
+            )}
             {entry.error && (
               <>
                 <dt className="text-muted-foreground">Error</dt>

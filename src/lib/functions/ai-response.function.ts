@@ -118,6 +118,8 @@ export interface AIRequestParams {
   signal?: AbortSignal;
   /** Caller's request id, so UI, network logs and the Rust side share one id. */
   requestId?: string;
+  /** Timings of the steps before this request, shown in Recent Requests. */
+  steps?: { label: string; ms: number }[];
 }
 
 const textLength = (content: Message["content"]) =>
@@ -178,6 +180,7 @@ export async function* fetchAIResponse(params: AIRequestParams): AsyncIterable<s
       timeToFirstChunkMs:
         firstChunkAt === undefined ? undefined : Math.round(firstChunkAt - started),
       totalMs: Math.round(performance.now() - started),
+      steps: params.steps,
     });
   }
 }

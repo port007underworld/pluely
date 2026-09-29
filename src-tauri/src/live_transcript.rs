@@ -646,6 +646,7 @@ pub async fn live_transcript_status(
 pub async fn live_transcript_get(
     app: AppHandle,
     window_seconds: u32,
+    finalize: Option<bool>,
     live: tauri::State<'_, Arc<LiveTranscriber>>,
     system: tauri::State<'_, Arc<SystemAudioState>>,
     mic: tauri::State<'_, Arc<MicAudioState>>,
@@ -663,17 +664,21 @@ pub async fn live_transcript_get(
     };
     let started = Instant::now();
 
+    // `finalize: false` returns what's already transcribed without waiting on
+    // Whisper, for automatic answers where the question is already final.
+    let finalize = finalize.unwrap_or(true);
     let (segments, system_ratio, mic_ratio) = tauri::async_runtime::spawn_blocking(move || {
-        deps.process(deps.pump_all());
-
         let mut provisional = Vec::new();
-        let in_progress = [
-            deps.live.system.lock().ok().and_then(|t| t.in_progress("system")),
-            deps.live.mic.lock().ok().and_then(|t| t.in_progress("mic")),
-        ];
-        for chunk in in_progress.into_iter().flatten() {
-            if let Ok(segments) = deps.transcribe(&chunk, false) {
-                provisional.extend(segments);
+        if finalize {
+            deps.process(deps.pump_all());
+            let in_progress = [
+                deps.live.system.lock().ok().and_then(|t| t.in_progress("system")),
+                deps.live.mic.lock().ok().and_then(|t| t.in_progress("mic")),
+            ];
+            for chunk in in_progress.into_iter().flatten() {
+                if let Ok(segments) = deps.transcribe(&chunk, false) {
+                    provisional.extend(segments);
+                }
             }
         }
 

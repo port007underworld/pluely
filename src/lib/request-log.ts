@@ -27,6 +27,8 @@ export interface RequestLogEntry {
   responseChars: number;
   timeToFirstChunkMs?: number;
   totalMs: number;
+  /** Steps before the request was sent (automatic answers), in order. */
+  steps?: { label: string; ms: number }[];
 }
 
 const STORAGE_KEY = "ai_request_log";
