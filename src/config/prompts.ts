@@ -165,3 +165,33 @@ Bullets as "Owner: task (due date if mentioned)". Use "You" for the user. Write 
 Anything left unresolved; omit this section if there is nothing.
 
 Base everything on the transcript only. It was produced by automatic speech recognition, so fix obvious mis-hearings silently but don't invent details.`;
+
+export interface QuickAction {
+  id: string;
+  label: string;
+  prompt: string;
+}
+
+/** Follow-ups that rework the last answer; shown under it and bound to ⌘1–⌘4. */
+export const QUICK_ACTIONS: QuickAction[] = [
+  {
+    id: "shorter",
+    label: "Shorter",
+    prompt: "Make your last answer much shorter: the essential point in two or three sentences, or the code with only the key line explained. No preamble.",
+  },
+  {
+    id: "simpler",
+    label: "Simpler",
+    prompt: "Explain your last answer more simply, as if to someone smart but new to the topic. Keep it short and use one concrete analogy or example if it helps.",
+  },
+  {
+    id: "example",
+    label: "Example",
+    prompt: "Give one concrete example that illustrates your last answer (a small code sample, worked numbers or a real-world scenario, whichever fits). Keep it brief.",
+  },
+  {
+    id: "ask_next",
+    label: "Ask next",
+    prompt: "Based on the conversation so far, suggest the two or three best questions I could ask next, each on one line, with a few words on why it's worth asking.",
+  },
+];

@@ -7,3 +7,4 @@ export * from "./attachments.function";
 export * from "./chat-export.function";
 export * from "./question-detect.function";
 export * from "./meeting-notes.function";
+export * from "./code-block.function";

@@ -62,6 +62,16 @@ export const DEFAULT_SHORTCUT_ACTIONS: ShortcutAction[] = [
     },
   },
   {
+    id: "copy_code",
+    name: "Copy Last Code Block",
+    description: "Copy the last code block from the latest answer to the clipboard",
+    defaultKey: {
+      macos: "cmd+shift+y",
+      windows: "ctrl+shift+y",
+      linux: "ctrl+shift+y",
+    },
+  },
+  {
     id: "toggle_system_audio",
     name: "Toggle Meeting Mode",
     description: "Turn Meeting mode on or off (listen to the meeting and transcribe it)",

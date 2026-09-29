@@ -131,6 +131,12 @@ export interface UseCompletionReturn {
   captureScreenshot: () => Promise<void>;
   /** Whether a screenshot is currently loading */
   isScreenshotLoading: boolean;
+  /** Short-lived confirmation from a quick action or copy (e.g. "Code copied"). */
+  actionNotice: string | null;
+  /** Rework the last answer (see QUICK_ACTIONS). */
+  runQuickAction: (id: string) => void;
+  /** Copy the last code block of the latest answer. */
+  copyLastCode: () => Promise<void>;
 }
 
 /**

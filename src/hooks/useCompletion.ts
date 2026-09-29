@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { useWindowResize } from "./useWindow";
 import { useGlobalShortcuts } from "@/hooks";
-import { MAX_FILES, STORAGE_KEYS, autoAnswerPrompt } from "@/config";
+import { MAX_FILES, STORAGE_KEYS, autoAnswerPrompt, QUICK_ACTIONS } from "@/config";
 import { useApp } from "@/contexts";
 import type { AttachedFile } from "@/types";
 import {
@@ -28,11 +28,13 @@ import {
   pastedImages,
   captureFullScreen,
   createQuestionDetector,
+  lastCodeBlock,
   useTranscriptionConfig,
   resolveAIProvider,
 } from "@/lib";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 
 // Types for completion
 
@@ -1007,6 +1009,54 @@ export const useCompletion = () => {
     };
   }, [autoAnswerEnabled]);
 
+  // Quick actions rework the last answer; the conversation history carries it.
+  const [actionNotice, setActionNotice] = useState<string | null>(null);
+  const flashNotice = useCallback((text: string) => {
+    setActionNotice(text);
+    setTimeout(() => setActionNotice((current) => (current === text ? null : current)), 2500);
+  }, []);
+
+  const runQuickAction = useCallback(
+    (id: string) => {
+      const action = QUICK_ACTIONS.find((a) => a.id === id);
+      const current = latestStateRef.current;
+      if (!action || current.isLoading || historyRef.current.length === 0) return;
+      void sendDirect({ displayPrompt: action.label, userMessage: action.prompt, files: [] });
+    },
+    [sendDirect]
+  );
+
+  const copyLastCode = useCallback(async () => {
+    const current = latestStateRef.current;
+    const lastAnswer =
+      current.response ||
+      [...historyRef.current].reverse().find((m) => m.role === "assistant")?.content ||
+      "";
+    const code = lastCodeBlock(lastAnswer);
+    if (code === null) {
+      flashNotice("No code block in the last answer.");
+      return;
+    }
+    try {
+      await writeText(code);
+      flashNotice("Code copied to the clipboard.");
+    } catch (error) {
+      flashNotice(`Couldn't copy: ${error}`);
+    }
+  }, [flashNotice]);
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (!isPopoverOpen || !(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey) return;
+      const index = Number(e.key) - 1;
+      if (!Number.isInteger(index) || index < 0 || index >= QUICK_ACTIONS.length) return;
+      e.preventDefault();
+      runQuickAction(QUICK_ACTIONS[index].id);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [runQuickAction, isPopoverOpen]);
+
   const processSelectionRef = useRef<((base64: string) => Promise<void>) | null>(null);
   processSelectionRef.current = async (base64: string) => {
     const config = screenshotConfigRef.current;
@@ -1100,6 +1150,7 @@ export const useCompletion = () => {
         );
       }
     );
+    globalShortcuts.registerCustomShortcutCallback("copy_code", () => void copyLastCode());
     globalShortcuts.registerCustomShortcutCallback("new_conversation", () => {
       startNewConversation();
       setKeepEngaged(false);
@@ -1107,6 +1158,7 @@ export const useCompletion = () => {
     return () => {
       globalShortcuts.unregisterCustomShortcutCallback("toggle_system_audio");
       globalShortcuts.unregisterCustomShortcutCallback("new_conversation");
+      globalShortcuts.unregisterCustomShortcutCallback("copy_code");
     };
   }, [
     globalShortcuts.registerInputRef,
@@ -1114,6 +1166,7 @@ export const useCompletion = () => {
     globalShortcuts.registerCustomShortcutCallback,
     globalShortcuts.unregisterCustomShortcutCallback,
     captureScreenshot,
+    copyLastCode,
     inputRef,
     setSystemAudioDaemonConfig,
     systemAudioDaemonConfig,
@@ -1128,6 +1181,9 @@ export const useCompletion = () => {
     isLoading: state.isLoading,
     audioNotice,
     idleResetNotice,
+    actionNotice,
+    runQuickAction,
+    copyLastCode,
     contextInfo,
     error: state.error,
     attachedFiles: state.attachedFiles,

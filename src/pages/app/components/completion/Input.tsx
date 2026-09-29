@@ -10,6 +10,8 @@ import {
   CopyButton,
 } from "@/components";
 import { UseCompletionReturn } from "@/types";
+import { QUICK_ACTIONS } from "@/config";
+import { lastCodeBlock } from "@/lib";
 
 const MOD = navigator.platform.toLowerCase().includes("mac") ? "⌘" : "Ctrl+";
 
@@ -38,6 +40,9 @@ export const Input = ({
   modelSpeed,
   setModelSpeed,
   hasSlowModel,
+  actionNotice,
+  runQuickAction,
+  copyLastCode,
 }: UseCompletionReturn & { isHidden: boolean }) => {
   return (
     <div className="relative flex-1">
@@ -219,6 +224,34 @@ export const Input = ({
                 </div>
               )}
               {response && <Markdown>{response}</Markdown>}
+              {response && !isLoading && (
+                <div className="flex flex-wrap items-center gap-1.5 pt-3 select-none">
+                  {QUICK_ACTIONS.map((action, i) => (
+                    <button
+                      key={action.id}
+                      type="button"
+                      onClick={() => runQuickAction(action.id)}
+                      title={`${action.prompt} (${MOD}${i + 1})`}
+                      className="text-[11px] px-2 py-0.5 rounded-full border border-input/60 text-muted-foreground hover:bg-muted/60 hover:text-foreground transition-colors cursor-pointer"
+                    >
+                      {action.label}
+                    </button>
+                  ))}
+                  {lastCodeBlock(response) !== null && (
+                    <button
+                      type="button"
+                      onClick={() => void copyLastCode()}
+                      title="Copy the last code block (also a global shortcut; see Cursor & Shortcuts)"
+                      className="text-[11px] px-2 py-0.5 rounded-full border border-input/60 text-muted-foreground hover:bg-muted/60 hover:text-foreground transition-colors cursor-pointer"
+                    >
+                      Copy code
+                    </button>
+                  )}
+                  {actionNotice && (
+                    <span className="text-[11px] text-muted-foreground">{actionNotice}</span>
+                  )}
+                </div>
+              )}
 
               {/* Conversation History - Separate scroll, no auto-scroll */}
               {keepEngaged && conversationHistory.length > 1 && (
