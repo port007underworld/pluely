@@ -17,22 +17,22 @@ export const RESPONSE_LENGTHS: ResponseLengthOption[] = [
     id: "short",
     title: "Short",
     description:
-      "Best for quick answers, summaries, and when you need to save time",
+      "Minimal explanation. Code and commands are still complete.",
     prompt:
-      "IMPORTANT: You must keep your response extremely brief and concise. Limit your answer to 2-4 sentences maximum. Provide only the most essential information. Do not include explanations, examples, or additional context unless explicitly requested. Get straight to the point. This is a strict requirement.",
+      "Response length: short. Keep the explanation to 2-4 sentences with only the essential information: no preamble, recap, background or alternatives unless asked. This limit applies to prose only: code, commands and complexity are not limited and must always be complete and runnable.",
   },
   {
     id: "medium",
     title: "Medium",
-    description: "Balanced responses with adequate explanations for most tasks",
+    description: "A short explanation of the key points. Code is always complete.",
     prompt:
-      "IMPORTANT: Provide responses with moderate length - not too brief, not too lengthy. Keep your answer to 1-2 paragraphs (approximately 4-8 sentences). Include key explanations and relevant details, but avoid being overly verbose or adding unnecessary elaboration. Stay focused and well-organized. This is a strict requirement.",
+      "Response length: medium. Keep the explanation to about 1-2 short paragraphs (4-8 sentences) covering the key reasoning and relevant details, without padding or repetition. This limit applies to prose only: code, commands and complexity are not limited and must always be complete and runnable.",
   },
   {
     id: "auto",
     title: "Auto",
     description:
-      "AI determines the best length based on your question's complexity",
+      "The AI picks the length for each question. Recommended with the built-in presets.",
     prompt: "",
   },
 ];
