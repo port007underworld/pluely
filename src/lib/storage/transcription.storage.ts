@@ -26,11 +26,14 @@ export interface TranscriptionConfig {
   autoAnswer: boolean;
   /** Include a screenshot with automatic answers. */
   autoAnswerScreenshot: boolean;
+  /** Silence after a question before answering, so a longer question isn't cut off. */
+  autoAnswerDelayMs: number;
   /** Write meeting notes from the live transcript when Meeting mode is turned off. */
   meetingNotes: boolean;
 }
 
 export const TRANSCRIPT_WINDOWS = [30, 60, 120, 300, 600];
+export const AUTO_ANSWER_DELAYS = [1000, 2000, 3000, 5000];
 
 export const DEFAULT_TRANSCRIPTION_CONFIG: TranscriptionConfig = {
   engine: "local",
@@ -42,6 +45,7 @@ export const DEFAULT_TRANSCRIPTION_CONFIG: TranscriptionConfig = {
   separateSpeakers: false,
   autoAnswer: false,
   autoAnswerScreenshot: false,
+  autoAnswerDelayMs: 2000,
   meetingNotes: false,
 };
 
@@ -79,6 +83,9 @@ export const getTranscriptionConfig = (): TranscriptionConfig => {
           : DEFAULT_TRANSCRIPTION_CONFIG.separateSpeakers,
       autoAnswer: parsed.autoAnswer === true,
       autoAnswerScreenshot: parsed.autoAnswerScreenshot === true,
+      autoAnswerDelayMs: AUTO_ANSWER_DELAYS.includes(parsed.autoAnswerDelayMs)
+        ? parsed.autoAnswerDelayMs
+        : DEFAULT_TRANSCRIPTION_CONFIG.autoAnswerDelayMs,
       meetingNotes: parsed.meetingNotes === true,
     };
   } catch {

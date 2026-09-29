@@ -32,6 +32,8 @@ import {
   FOLLOW_UP_INSTRUCTIONS,
   lastCodeBlock,
   useTranscriptionConfig,
+  getTranscriptionConfig,
+  setTranscriptionConfig,
   resolveAIProvider,
 } from "@/lib";
 import { invoke } from "@tauri-apps/api/core";
@@ -1031,6 +1033,7 @@ export const useCompletion = () => {
     if (!autoAnswerEnabled) return;
     const detector = createQuestionDetector({
       onQuestion: (question) => void autoAnswerRef.current(question),
+      pauseMs: transcriptionConfig.autoAnswerDelayMs,
     });
     let cancelled = false;
     const unlisteners: (() => void)[] = [];
@@ -1052,7 +1055,7 @@ export const useCompletion = () => {
       detector.dispose();
       unlisteners.forEach((fn) => fn());
     };
-  }, [autoAnswerEnabled]);
+  }, [autoAnswerEnabled, transcriptionConfig.autoAnswerDelayMs]);
 
   // Quick actions rework the last answer; the conversation history carries it.
   const [actionNotice, setActionNotice] = useState<string | null>(null);
@@ -1210,6 +1213,9 @@ export const useCompletion = () => {
       }
     );
     globalShortcuts.registerCustomShortcutCallback("copy_code", () => void copyLastCode());
+    globalShortcuts.registerCustomShortcutCallback("toggle_auto_answer", () => {
+      setTranscriptionConfig({ autoAnswer: !getTranscriptionConfig().autoAnswer });
+    });
     globalShortcuts.registerCustomShortcutCallback("new_conversation", () => {
       startNewConversation();
       setKeepEngaged(false);
@@ -1218,6 +1224,7 @@ export const useCompletion = () => {
       globalShortcuts.unregisterCustomShortcutCallback("toggle_system_audio");
       globalShortcuts.unregisterCustomShortcutCallback("new_conversation");
       globalShortcuts.unregisterCustomShortcutCallback("copy_code");
+      globalShortcuts.unregisterCustomShortcutCallback("toggle_auto_answer");
     };
   }, [
     globalShortcuts.registerInputRef,

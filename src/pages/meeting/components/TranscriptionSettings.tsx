@@ -32,6 +32,7 @@ import {
   captureMeetingAudio,
   MeetingAudioCapture,
   TRANSCRIPT_WINDOWS,
+  AUTO_ANSWER_DELAYS,
   TranscriptionEngine,
   useTranscriptionConfig,
 } from "@/lib";
@@ -605,6 +606,8 @@ export const TranscriptionSettings = () => {
                       in the overlay without a shortcut press. Only their audio is used, and it
                       waits for them to finish speaking. A question asked while an answer is still
                       being written is answered right after it. Each answer is a normal AI request.
+                      While Meeting mode is on, the question-mark button in the overlay (or its
+                      shortcut) turns this on and off.
                     </p>
                   </div>
                   <Switch
@@ -612,6 +615,30 @@ export const TranscriptionSettings = () => {
                     onCheckedChange={(autoAnswer) => setConfig({ autoAnswer })}
                   />
                 </div>
+                {config.autoAnswer && (
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-xs text-muted-foreground">
+                      Wait after they stop speaking. Longer waits keep long, multi-part
+                      questions together; shorter ones answer sooner.
+                    </p>
+                    <Select
+                      value={String(config.autoAnswerDelayMs)}
+                      onValueChange={(v) => setConfig({ autoAnswerDelayMs: Number(v) })}
+                    >
+                      <SelectTrigger className="w-40 shrink-0">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {AUTO_ANSWER_DELAYS.map((ms) => (
+                          <SelectItem key={ms} value={String(ms)}>
+                            {ms / 1000} second{ms === 1000 ? "" : "s"}
+                            {ms === 2000 ? " (default)" : ""}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
                 {config.autoAnswer && (
                   <div className="flex items-start justify-between gap-3">
                     <p className="text-xs text-muted-foreground">

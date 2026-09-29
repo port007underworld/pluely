@@ -1,6 +1,7 @@
 import { useCompletion } from "@/hooks";
 import { Screenshot } from "./Screenshot";
 import { MeetingModeToggle } from "./MeetingModeToggle";
+import { AutoAnswerToggle } from "./AutoAnswerToggle";
 import { Files } from "./Files";
 import { Input } from "./Input";
 
@@ -12,6 +13,7 @@ export const Completion = ({ isHidden }: { isHidden: boolean }) => {
       <Input {...completion} isHidden={isHidden} />
       <Screenshot {...completion} />
       <MeetingModeToggle />
+      <AutoAnswerToggle />
       <Files {...completion} />
     </>
   );

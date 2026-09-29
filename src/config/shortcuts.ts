@@ -72,6 +72,16 @@ export const DEFAULT_SHORTCUT_ACTIONS: ShortcutAction[] = [
     },
   },
   {
+    id: "toggle_auto_answer",
+    name: "Toggle Auto-Answer",
+    description: "Turn automatic answers to meeting questions on or off",
+    defaultKey: {
+      macos: "cmd+shift+u",
+      windows: "ctrl+shift+u",
+      linux: "ctrl+shift+u",
+    },
+  },
+  {
     id: "toggle_system_audio",
     name: "Toggle Meeting Mode",
     description: "Turn Meeting mode on or off (listen to the meeting and transcribe it)",
