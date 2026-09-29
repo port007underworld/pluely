@@ -287,3 +287,43 @@ export function textToBase64(text: string): string {
 export function base64ToText(base64: string): string {
   return new TextDecoder().decode(Uint8Array.from(atob(base64), (c) => c.charCodeAt(0)));
 }
+
+/**
+ * Request URL from a parsed curl: curl-to-json moves the query string into
+ * `params`, so put it back with variables (e.g. {{API_KEY}}) filled in.
+ */
+export function buildRequestUrl(
+  curlJson: { url?: string; params?: Record<string, unknown> },
+  variables: Record<string, string>
+): string {
+  let url = deepVariableReplacer(curlJson.url || "", variables);
+  const params = Object.fromEntries(
+    Object.entries(curlJson.params || {}).map(([key, value]) => [
+      key,
+      typeof value === "string" ? decodeURIComponent(value) : String(value),
+    ])
+  );
+  const query = new URLSearchParams(deepVariableReplacer(params, variables)).toString();
+  if (query) url += (url.includes("?") ? "&" : "?") + query;
+  return url;
+}
+
+/**
+ * Google's generateContent APIs (Gemini, Vertex AI) choose streaming by URL
+ * (":streamGenerateContent") and reject a "stream" field in the body.
+ */
+export const streamsViaUrl = (url: string) => /:streamGenerateContent\b/i.test(url);
+
+/** For URL-selected streaming, ask for SSE ("data: {...}" lines), which the reader parses. */
+export function withSseParam(url: string): string {
+  if (!streamsViaUrl(url) || /[?&]alt=/i.test(url)) return url;
+  return url + (url.includes("?") ? "&" : "?") + "alt=sse";
+}
+
+/** Hide credentials passed as query parameters before logging a URL. */
+export function redactUrl(url: string): string {
+  return url.replace(
+    /([?&](?:key|api_key|apikey|access_token|token)=)[^&#]*/gi,
+    "$1[redacted]"
+  );
+}

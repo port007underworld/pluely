@@ -1,5 +1,9 @@
 import {
   buildDynamicMessages,
+  buildRequestUrl,
+  redactUrl,
+  streamsViaUrl,
+  withSseParam,
   deepVariableReplacer,
   extractVariables,
   getByPath,
@@ -403,12 +407,16 @@ async function* streamAIResponse(
       }
     }
 
-    let url = deepVariableReplacer(curlJson.url || "", allVariables);
+    let url = buildRequestUrl(curlJson, allVariables);
 
     const headers = deepVariableReplacer(curlJson.header || {}, allVariables);
     headers["Content-Type"] = "application/json";
 
-    if (provider?.streaming) {
+    // OpenAI-style APIs opt into streaming with a "stream" body field; Google's
+    // generateContent APIs choose it by URL and reject that field.
+    if (provider?.streaming && streamsViaUrl(url)) {
+      url = withSseParam(url);
+    } else if (provider?.streaming) {
       if (typeof bodyObj === "object" && bodyObj !== null) {
         const streamKey = Object.keys(bodyObj).find(
           (k) => k.toLowerCase() === "stream"
@@ -442,7 +450,7 @@ async function* streamAIResponse(
       logNetworkFailure({
         requestId,
         providerId: provider?.id,
-        url,
+        url: redactUrl(url),
         method: curlJson.method || "POST",
         errorName: fetchError instanceof Error ? fetchError.name : undefined,
         errorMessage:
@@ -464,7 +472,7 @@ async function* streamAIResponse(
       logNetworkFailure({
         requestId,
         providerId: provider?.id,
-        url,
+        url: redactUrl(url),
         method: curlJson.method || "POST",
         status: response.status,
         statusText: response.statusText,
@@ -523,7 +531,7 @@ async function* streamAIResponse(
         logNetworkFailure({
           requestId,
           providerId: provider?.id,
-          url,
+          url: redactUrl(url),
           method: curlJson.method || "POST",
           errorName: readError instanceof Error ? readError.name : undefined,
           errorMessage:
