@@ -2,6 +2,7 @@ import { useNavigate } from "react-router-dom";
 import {
   MeetingModeSettings,
   MeetingNotes,
+  MeetingPrepCard,
   People,
   PinnedFacts,
   TalkTime,
@@ -22,6 +23,7 @@ const Meeting = () => {
       title="Meeting"
       description={`With Meeting mode on, ${screenshotKey || "the screenshot shortcut"} also sends a transcript of what was just said, so the AI can answer the question you were asked. Turn it on here, with the waveform button in the overlay${toggleKey ? `, or ${toggleKey}` : ""}.`}
     >
+      <MeetingPrepCard />
       <MeetingModeSettings {...settings} />
       <PinnedFacts />
       <TranscriptionSettings />

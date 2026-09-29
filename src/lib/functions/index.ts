@@ -11,3 +11,4 @@ export * from "./code-block.function";
 export * from "./prompt-cache.function";
 export * from "./follow-ups.function";
 export * from "./session-stats.function";
+export * from "./meeting-prep.function";
