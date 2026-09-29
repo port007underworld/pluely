@@ -1,3 +1,4 @@
+import { addPromptCacheBreakpoints } from "./prompt-cache.function";
 import {
   buildDynamicMessages,
   buildRequestUrl,
@@ -296,6 +297,8 @@ async function* streamAIResponse(
 
     const headers = deepVariableReplacer(curlJson.header || {}, allVariables);
     headers["Content-Type"] = "application/json";
+
+    bodyObj = addPromptCacheBreakpoints(bodyObj, url, headers);
 
     // OpenAI-style APIs opt into streaming with a "stream" body field; Google's
     // generateContent APIs choose it by URL and reject that field.
