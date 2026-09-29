@@ -55,15 +55,30 @@ jobs:
           CERT: ${{ secrets.APPLE_CERTIFICATE }}
           CERT_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+        # The certificate is imported here instead of passing APPLE_CERTIFICATE to
+        # Tauri: Tauri only accepts "valid" (trusted) identities from a certificate
+        # it imports itself, and a self-signed one never is. Given just the
+        # identity name, it signs with the keychain like a local build does.
         run: |
-          if [ -n "$CERT" ] && [ -n "$CERT_PASSWORD" ] && [ -n "$IDENTITY" ]; then
-            echo "APPLE_CERTIFICATE=$CERT" >> "$GITHUB_ENV"
-            echo "APPLE_CERTIFICATE_PASSWORD=$CERT_PASSWORD" >> "$GITHUB_ENV"
-            echo "APPLE_SIGNING_IDENTITY=$IDENTITY" >> "$GITHUB_ENV"
-            echo "macOS builds will be signed with \"$IDENTITY\"."
-          else
+          if [ -z "$CERT" ] || [ -z "$CERT_PASSWORD" ] || [ -z "$IDENTITY" ]; then
             echo "No signing secrets; macOS builds stay ad-hoc signed."
+            exit 0
           fi
+          KEYCHAIN="$RUNNER_TEMP/signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -hex 16)"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          echo "$CERT" | base64 --decode > "$RUNNER_TEMP/signing.p12"
+          security import "$RUNNER_TEMP/signing.p12" -k "$KEYCHAIN" -P "$CERT_PASSWORD" -T /usr/bin/codesign
+          rm -f "$RUNNER_TEMP/signing.p12"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" > /dev/null
+          # Put it first in the search list, keeping the existing keychains.
+          EXISTING=$(security list-keychains -d user | tr -d '"')
+          security list-keychains -d user -s "$KEYCHAIN" $EXISTING
+          security find-identity -p codesigning "$KEYCHAIN"
+          echo "APPLE_SIGNING_IDENTITY=$IDENTITY" >> "$GITHUB_ENV"
+          echo "macOS builds will be signed with \"$IDENTITY\"."
 
       - name: Build & publish
         uses: tauri-apps/tauri-action@v0.5.16
