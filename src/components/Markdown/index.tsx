@@ -23,7 +23,10 @@ export function Markdown({
   children,
   isStreaming = false,
 }: MarkdownRendererProps) {
+  // Wide content (long code lines, display math, tables) scrolls inside its own
+  // box so it can't widen the answer and push wrapped text past the edge.
   return (
+    <div className="min-w-0 max-w-full [overflow-wrap:anywhere] [&_pre]:max-w-full [&_pre]:overflow-x-auto [&_.katex-display]:max-w-full [&_.katex-display]:overflow-x-auto [&_.katex-display]:overflow-y-hidden [&_.katex]:inline-block [&_.katex]:max-w-full [&_.katex]:overflow-x-auto [&_.katex]:overflow-y-hidden [&_.katex]:align-bottom [&_table]:block [&_table]:max-w-full [&_table]:overflow-x-auto">
     <Streamdown
       isAnimating={isStreaming}
       shikiTheme={["github-light", "github-dark"]}
@@ -42,6 +45,7 @@ export function Markdown({
     >
       {children}
     </Streamdown>
+    </div>
   );
 }
 
