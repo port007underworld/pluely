@@ -1,4 +1,12 @@
-import { Loader2, MessageSquarePlusIcon, MessagesSquareIcon, XIcon } from "lucide-react";
+import { useEffect } from "react";
+import {
+  ChevronLeftIcon,
+  ChevronRightIcon,
+  Loader2,
+  MessageSquarePlusIcon,
+  MessagesSquareIcon,
+  XIcon,
+} from "lucide-react";
 import {
   Popover,
   PopoverContent,
@@ -12,6 +20,7 @@ import {
 import { UseCompletionReturn } from "@/types";
 import { QUICK_ACTIONS } from "@/config";
 import { lastCodeBlock } from "@/lib";
+import { useAnswerPager } from "./useAnswerPager";
 
 const MOD = navigator.platform.toLowerCase().includes("mac") ? "⌘" : "Ctrl+";
 
@@ -44,6 +53,38 @@ export const Input = ({
   runQuickAction,
   copyLastCode,
 }: UseCompletionReturn & { isHidden: boolean }) => {
+  const pager = useAnswerPager({
+    history: conversationHistory,
+    response,
+    input,
+    isLoading,
+    conversationId: currentConversationId,
+  });
+  const { toLatest, previous, next } = pager;
+  const shownAnswer = pager.older?.content ?? response;
+
+  // Closing the panel returns to the latest answer.
+  useEffect(() => {
+    if (!isPopoverOpen) toLatest();
+  }, [isPopoverOpen, toLatest]);
+
+  // Cmd/Ctrl+[ and ] page through answers while the panel is open.
+  useEffect(() => {
+    if (!isPopoverOpen) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey) return;
+      if (e.key === "[") {
+        e.preventDefault();
+        previous();
+      } else if (e.key === "]") {
+        e.preventDefault();
+        next();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [isPopoverOpen, previous, next]);
+
   return (
     <div className="relative flex-1">
       <Popover
@@ -124,6 +165,33 @@ export const Input = ({
               )}
             </div>
             <div className="flex items-center gap-2 select-none">
+              {pager.total > 1 && !keepEngaged && (
+                <div className="flex items-center gap-0.5 text-[11px] text-muted-foreground">
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="size-6 cursor-pointer"
+                    title={`Previous answer (${MOD}[)`}
+                    disabled={pager.position === 0}
+                    onClick={previous}
+                  >
+                    <ChevronLeftIcon className="size-3.5" />
+                  </Button>
+                  <span className="tabular-nums" title="Answers in this conversation">
+                    {pager.position + 1}/{pager.total}
+                  </span>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="size-6 cursor-pointer"
+                    title={`Next answer (${MOD}])`}
+                    disabled={pager.newer === 0}
+                    onClick={next}
+                  >
+                    <ChevronRightIcon className="size-3.5" />
+                  </Button>
+                </div>
+              )}
               {/* Fast/Slow model toggle — only visible when slow model is configured */}
               {hasSlowModel && (
                 <div className="flex flex-row items-center gap-1.5 mr-1">
@@ -182,7 +250,7 @@ export const Input = ({
               >
                 <MessageSquarePlusIcon />
               </Button>
-              <CopyButton content={response} />
+              <CopyButton content={shownAnswer} />
               <Button
                 size="icon"
                 variant="ghost"
@@ -216,6 +284,28 @@ export const Input = ({
                 <div className="mb-4 p-3 bg-amber-500/10 border border-amber-500/20 rounded text-xs text-amber-700 dark:text-amber-400">
                   <strong>Meeting audio:</strong> {audioNotice}
                 </div>
+              )}
+              {pager.older && !keepEngaged ? (
+                <>
+                  <p className="mb-2 text-[11px] text-muted-foreground line-clamp-2 select-none">
+                    {pager.older.question}
+                  </p>
+                  <Markdown>{pager.older.content}</Markdown>
+                  <button
+                    type="button"
+                    onClick={toLatest}
+                    className="mt-3 text-[11px] px-2 py-0.5 rounded-full border border-primary/50 text-primary hover:bg-primary/10 cursor-pointer select-none"
+                  >
+                    {isLoading ? "New answer being written" : "Back to latest answer"}
+                    {pager.newer > 1 ? ` (${pager.newer} newer)` : ""} ›
+                  </button>
+                </>
+              ) : (
+                <>
+              {pager.total > 1 && !keepEngaged && pager.question && (
+                <p className="mb-2 text-[11px] text-muted-foreground line-clamp-2 select-none">
+                  {pager.question}
+                </p>
               )}
               {isLoading && (
                 <div className="flex items-center gap-2 my-4 text-muted-foreground animate-pulse select-none">
@@ -251,6 +341,8 @@ export const Input = ({
                     <span className="text-[11px] text-muted-foreground">{actionNotice}</span>
                   )}
                 </div>
+              )}
+                </>
               )}
 
               {/* Conversation History - Separate scroll, no auto-scroll */}
