@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { useWindowResize } from "./useWindow";
 import { useGlobalShortcuts } from "@/hooks";
-import { MAX_FILES, STORAGE_KEYS } from "@/config";
+import { MAX_FILES, STORAGE_KEYS, autoAnswerPrompt } from "@/config";
 import { useApp } from "@/contexts";
 import type { AttachedFile } from "@/types";
 import {
@@ -27,6 +27,8 @@ import {
   attachableFiles,
   pastedImages,
   captureFullScreen,
+  createQuestionDetector,
+  useTranscriptionConfig,
   resolveAIProvider,
 } from "@/lib";
 import { invoke } from "@tauri-apps/api/core";
@@ -571,6 +573,95 @@ export const useCompletion = () => {
     e.target.value = "";
   };
 
+  /**
+   * Send a request straight to the AI (no editing in the input box), stream the
+   * answer into the panel and save the turn. Used by auto-mode screenshots and
+   * automatic question answering.
+   */
+  const sendDirect = useCallback(
+    async ({
+      displayPrompt,
+      userMessage,
+      imagesBase64,
+      audioBase64,
+      files,
+    }: {
+      displayPrompt: string;
+      userMessage: string;
+      imagesBase64?: string[];
+      audioBase64?: string;
+      files: AttachedFile[];
+    }) => {
+      const resolved = resolveAIProvider(selectedAIProvider, allAiProviders);
+      if ("error" in resolved) {
+        setState((prev) => ({ ...prev, error: resolved.error }));
+        return;
+      }
+      const { provider } = resolved;
+
+      const requestId = generateRequestId();
+      currentRequestIdRef.current = requestId;
+      abortControllerRef.current?.abort();
+      abortControllerRef.current = new AbortController();
+      const signal = abortControllerRef.current.signal;
+
+      try {
+        const messageHistory = buildRequestHistory(userMessage);
+        let fullResponse = "";
+
+        setState((prev) => ({
+          ...prev,
+          input: displayPrompt,
+          isLoading: true,
+          error: null,
+          response: "",
+        }));
+
+        for await (const chunk of fetchAIResponse({
+          provider,
+          selectedProvider: getEffectiveProvider(),
+          systemPrompt: systemPrompt || undefined,
+          history: messageHistory,
+          userMessage,
+          imagesBase64,
+          audioBase64,
+          signal,
+          requestId,
+        })) {
+          if (currentRequestIdRef.current !== requestId || signal.aborted) return;
+          fullResponse += chunk;
+          setState((prev) => ({ ...prev, response: prev.response + chunk }));
+        }
+
+        if (currentRequestIdRef.current !== requestId || signal.aborted) return;
+        setState((prev) => ({ ...prev, isLoading: false }));
+        setTimeout(() => inputRef.current?.focus(), 100);
+
+        if (fullResponse) {
+          await saveCurrentConversation(userMessage, fullResponse, files);
+          setState((prev) => ({ ...prev, input: "" }));
+        }
+      } catch (e: any) {
+        if (currentRequestIdRef.current === requestId && !signal.aborted) {
+          setState((prev) => ({ ...prev, error: e.message || "An error occurred" }));
+        }
+      } finally {
+        if (currentRequestIdRef.current === requestId && !signal.aborted) {
+          setState((prev) => ({ ...prev, isLoading: false }));
+        }
+      }
+    },
+    [
+      selectedAIProvider,
+      allAiProviders,
+      buildRequestHistory,
+      getEffectiveProvider,
+      systemPrompt,
+      saveCurrentConversation,
+      inputRef,
+    ]
+  );
+
   const handleScreenshotSubmit = useCallback(
     async (
       base64: string,
@@ -609,102 +700,15 @@ export const useCompletion = () => {
             size: base64.length,
           };
 
-          // Generate unique request ID
-          const requestId = generateRequestId();
-          currentRequestIdRef.current = requestId;
-          const promptForRequest = audioTranscription?.trim()
-            ? `${prompt}\n\n${audioTranscription}`
-            : prompt;
-
-          // Cancel any existing request
-          if (abortControllerRef.current) {
-            abortControllerRef.current.abort();
-          }
-
-          abortControllerRef.current = new AbortController();
-          const signal = abortControllerRef.current.signal;
-
-          try {
-            const messageHistory = buildRequestHistory(promptForRequest);
-
-            let fullResponse = "";
-            const resolved = resolveAIProvider(selectedAIProvider, allAiProviders);
-            if ("error" in resolved) {
-              setState((prev) => ({ ...prev, error: resolved.error }));
-              return;
-            }
-            const { provider } = resolved;
-
-            // Clear previous response and set loading state
-            setState((prev) => ({
-              ...prev,
-              input: prompt,
-              isLoading: true,
-              error: null,
-              response: "",
-            }));
-
-            // Use the fetchAIResponse function with image and signal
-            for await (const chunk of fetchAIResponse({
-              provider,
-              selectedProvider: getEffectiveProvider(),
-              systemPrompt: systemPrompt || undefined,
-              history: messageHistory,
-              userMessage: promptForRequest,
-              imagesBase64: [base64],
-              audioBase64: audioBase64,
-              signal,
-              requestId,
-            })) {
-
-              // Only update if this is still the current request
-              if (currentRequestIdRef.current !== requestId || signal.aborted) {
-                return; // Request was superseded or cancelled
-              }
-
-              fullResponse += chunk;
-              setState((prev) => ({
-                ...prev,
-                response: prev.response + chunk,
-              }));
-            }
-
-            // Only proceed if this is still the current request
-            if (currentRequestIdRef.current !== requestId || signal.aborted) {
-              return;
-            }
-
-            setState((prev) => ({ ...prev, isLoading: false }));
-
-            // Focus input after screenshot AI response is complete
-            setTimeout(() => {
-              inputRef.current?.focus();
-            }, 100);
-
-            // Save the conversation after successful completion
-            if (fullResponse) {
-              const filesToSave = audioAttachedFile ? [attachedFile, audioAttachedFile] : [attachedFile];
-              await saveCurrentConversation(promptForRequest, fullResponse, filesToSave);
-              // Clear input after saving
-              setState((prev) => ({
-                ...prev,
-                input: "",
-              }));
-            }
-          } catch (e: any) {
-            // Only show error if this is still the current request and not aborted
-            if (currentRequestIdRef.current === requestId && !signal.aborted) {
-              setState((prev) => ({
-                ...prev,
-                error: e.message || "An error occurred",
-              }));
-            }
-          } finally {
-            // Only update loading state if this is still the current request
-            if (currentRequestIdRef.current === requestId && !signal.aborted) {
-              setState((prev) => ({ ...prev, isLoading: false }));
-            }
-          }
+          await sendDirect({
+            displayPrompt: prompt,
+            userMessage: audioTranscription?.trim()
+              ? `${prompt}\n\n${audioTranscription}`
+              : prompt,
+            imagesBase64: [base64],
+            audioBase64,
+            files: audioAttachedFile ? [attachedFile, audioAttachedFile] : [attachedFile],
+          });
         } else {
           // Manual mode: Add to attached files
           const attachedFile: AttachedFile = {
@@ -745,15 +749,7 @@ export const useCompletion = () => {
         }));
       }
     },
-    [
-      state.attachedFiles.length,
-      buildRequestHistory,
-      selectedAIProvider,
-      allAiProviders,
-      systemPrompt,
-      saveCurrentConversation,
-      inputRef,
-    ]
+    [state.attachedFiles.length, sendDirect]
   );
 
   const onRemoveAllFiles = () => {
@@ -937,6 +933,79 @@ export const useCompletion = () => {
       }
     }
   }, [handleScreenshotSubmit, captureShortcutAudio]);
+
+  // Automatic answers: when another participant asks a question in the live
+  // transcript, answer it as if the user had pressed the screenshot shortcut.
+  const [transcriptionConfig] = useTranscriptionConfig();
+  const autoAnswerEnabled =
+    transcriptionConfig.autoAnswer &&
+    transcriptionConfig.engine === "local" &&
+    transcriptionConfig.live &&
+    systemAudioDaemonConfig.enabled;
+  const latestStateRef = useRef(state);
+  latestStateRef.current = state;
+
+  const autoAnswerRef = useRef<(question: string) => Promise<void>>(async () => {});
+  autoAnswerRef.current = async (question: string) => {
+    const current = latestStateRef.current;
+    // Never interrupt an answer in progress or overwrite something being typed.
+    if (current.isLoading || current.input.trim() || isScreenshotLoading) return;
+
+    const audio = await captureShortcutAudio();
+    let screenshot: string | undefined;
+    if (transcriptionConfig.autoAnswerScreenshot && (await ensureScreenRecordingPermission())) {
+      try {
+        screenshot = await captureFullScreen(screenshotConfigRef.current);
+      } catch (error) {
+        console.warn("Auto-answer screenshot failed:", error);
+      }
+    }
+    const prompt = autoAnswerPrompt(question);
+    const files: AttachedFile[] = screenshot
+      ? [
+          {
+            id: `${Date.now()}`,
+            name: `screenshot_${Date.now()}.png`,
+            type: "image/png",
+            base64: screenshot,
+            size: screenshot.length,
+          },
+        ]
+      : [];
+    await sendDirect({
+      displayPrompt: `Auto-answer: ${question}`,
+      userMessage: audio?.transcript?.trim() ? `${prompt}\n\n${audio.transcript}` : prompt,
+      imagesBase64: screenshot ? [screenshot] : undefined,
+      audioBase64: audio?.audioBase64,
+      files,
+    });
+  };
+
+  useEffect(() => {
+    if (!autoAnswerEnabled) return;
+    const detector = createQuestionDetector({
+      onQuestion: (question) => void autoAnswerRef.current(question),
+    });
+    let cancelled = false;
+    const unlisteners: (() => void)[] = [];
+    const subscribe = <T,>(event: string, handler: (payload: T) => void) =>
+      listen<T>(event, ({ payload }) => handler(payload)).then((fn) => {
+        if (cancelled) fn();
+        else unlisteners.push(fn);
+      });
+    // Only the other participants' audio: the user's own questions aren't answered.
+    subscribe<{ source: string; text: string }>("live-transcript-segment", (segment) => {
+      if (segment.source === "system") detector.line(segment.text);
+    });
+    subscribe<{ source: string }>("live-transcript-partial", (partial) => {
+      if (partial.source === "system") detector.speaking();
+    });
+    return () => {
+      cancelled = true;
+      detector.dispose();
+      unlisteners.forEach((fn) => fn());
+    };
+  }, [autoAnswerEnabled]);
 
   const processSelectionRef = useRef<((base64: string) => Promise<void>) | null>(null);
   processSelectionRef.current = async (base64: string) => {

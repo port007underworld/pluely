@@ -595,6 +595,37 @@ export const TranscriptionSettings = () => {
               </div>
             )}
 
+            {config.live && (
+              <div className="space-y-2 pl-6">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-medium">Answer questions automatically</p>
+                    <p className="text-xs text-muted-foreground">
+                      When someone else in the meeting asks a question, Runningbord answers it
+                      in the overlay without a shortcut press. Only their audio is used, and it
+                      waits for them to finish speaking. At most one answer every 20 seconds;
+                      each one is a normal AI request.
+                    </p>
+                  </div>
+                  <Switch
+                    checked={config.autoAnswer}
+                    onCheckedChange={(autoAnswer) => setConfig({ autoAnswer })}
+                  />
+                </div>
+                {config.autoAnswer && (
+                  <div className="flex items-start justify-between gap-3">
+                    <p className="text-xs text-muted-foreground">
+                      Include a screenshot (for questions about what's on screen)
+                    </p>
+                    <Switch
+                      checked={config.autoAnswerScreenshot}
+                      onCheckedChange={(autoAnswerScreenshot) => setConfig({ autoAnswerScreenshot })}
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+
             {liveWanted && (
               <div className="ml-6 rounded-md bg-muted/40 p-2 space-y-1">
                 <div className="flex items-center gap-2 text-[10px] text-muted-foreground">

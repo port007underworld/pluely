@@ -22,6 +22,10 @@ export interface TranscriptionConfig {
   transcriptWindowSeconds: number;
   /** Live + macOS: label distinct remote voices "Speaker 1", "Speaker 2"... */
   separateSpeakers: boolean;
+  /** Live only: answer questions from other participants without a shortcut press. */
+  autoAnswer: boolean;
+  /** Include a screenshot with automatic answers. */
+  autoAnswerScreenshot: boolean;
 }
 
 export const TRANSCRIPT_WINDOWS = [30, 60, 120, 300, 600];
@@ -34,6 +38,8 @@ export const DEFAULT_TRANSCRIPTION_CONFIG: TranscriptionConfig = {
   live: true,
   transcriptWindowSeconds: 300,
   separateSpeakers: false,
+  autoAnswer: false,
+  autoAnswerScreenshot: false,
 };
 
 const CHANGE_EVENT = "transcription-config-changed";
@@ -68,6 +74,8 @@ export const getTranscriptionConfig = (): TranscriptionConfig => {
         typeof parsed.separateSpeakers === "boolean"
           ? parsed.separateSpeakers
           : DEFAULT_TRANSCRIPTION_CONFIG.separateSpeakers,
+      autoAnswer: parsed.autoAnswer === true,
+      autoAnswerScreenshot: parsed.autoAnswerScreenshot === true,
     };
   } catch {
     return DEFAULT_TRANSCRIPTION_CONFIG;

@@ -114,3 +114,8 @@ Skip everything else on screen.`,
   "Analyze the attached audio and screenshot and provide cohesive, actionable insights. If audio is noisy or unclear, state uncertainty explicitly and prioritize reliable signals.",
   "Analyze the screenshot together with the attached meeting transcript or audio, if any, and provide cohesive, actionable insights. If someone asked a question, answer it directly. If the audio is noisy or unclear, state uncertainty explicitly and prioritize reliable signals.",
 ];
+
+/** Sent when a question from another participant is detected in the live transcript. */
+export const autoAnswerPrompt = (question: string) =>
+  `Another participant just asked: "${question}"
+Give me the answer to say out loud: lead with the direct answer in one or two sentences, then any key supporting points. Use the meeting transcript for context. If it wasn't really a question for me, reply with only "No answer needed."`;

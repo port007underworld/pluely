@@ -5,3 +5,4 @@ export * from "./meeting-audio.function";
 export * from "./history.function";
 export * from "./attachments.function";
 export * from "./chat-export.function";
+export * from "./question-detect.function";
