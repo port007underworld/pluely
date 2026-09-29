@@ -5,6 +5,12 @@ import {
   TranscriptionEngine,
 } from "../storage/transcription.storage";
 import { fetchSTT } from "./stt.function";
+import {
+  getSpeakerNames,
+  SpeakerNames,
+  speakerDisplayName,
+  speakerNamesLegend,
+} from "../storage/speaker-names.storage";
 
 export interface TranscriptSegment {
   /** "system" = other participants (computer audio output), "mic" = the user. */
@@ -46,8 +52,8 @@ const silenceWarning = (seconds: number) =>
 
 const errorMessage = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
-const speakerLabel = (segment: TranscriptSegment) =>
-  segment.source === "mic" ? "You" : segment.speaker ?? "Them";
+const speakerLabel = (segment: TranscriptSegment, names: SpeakerNames) =>
+  segment.source === "mic" ? "You" : speakerDisplayName(segment.speaker ?? "Them", names);
 
 const formatOffset = (seconds: number) => {
   const total = Math.max(0, Math.round(-seconds));
@@ -68,12 +74,16 @@ export function formatTranscriptForLLM(
   const others = hasSpeakers
     ? '"Speaker 1", "Speaker 2"… = distinct voices of other participants (computer audio), numbered per meeting; "Them" = a participant whose voice could not be identified.'
     : '"Them" = other participants (computer audio).';
-  const legend = hasMic
-    ? `${others} "You" = the user (microphone).`
-    : `${others} The user's own voice is not captured.`;
+  const names = getSpeakerNames();
+  const legend = [
+    hasMic ? `${others} "You" = the user (microphone).` : `${others} The user's own voice is not captured.`,
+    speakerNamesLegend(names),
+  ]
+    .filter(Boolean)
+    .join(" ");
   const lines = segments.map((s) => {
     const time = s.startOffset !== undefined ? `[${formatOffset(s.startOffset)}] ` : "";
-    return `${time}${speakerLabel(s)}: ${s.text}`;
+    return `${time}${speakerLabel(s, names)}: ${s.text}`;
   });
   return [
     `<meeting_transcript window="last ${formatWindow(windowSeconds)}" order="oldest first">`,

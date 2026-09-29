@@ -22,6 +22,7 @@ export const STORAGE_KEYS = {
   PERSONAL_CONTEXT: "personal_context",
   PROFILES: "profiles",
   PINNED_FACTS: "pinned_facts",
+  SPEAKER_NAMES: "speaker_names",
 } as const;
 
 // Max number of files that can be attached to a message

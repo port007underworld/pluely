@@ -456,10 +456,12 @@ pub async fn live_transcript_start(
     if live.running.swap(true, Ordering::SeqCst) {
         return Ok(()); // already running; config updated above
     }
+    let started_ms = now_ms();
     *live.session.lock().map_err(|e| e.to_string())? = Session {
-        started_ms: now_ms(),
+        started_ms,
         ..Session::default()
     };
+    let _ = app.emit("meeting-started", serde_json::json!({ "startedMs": started_ms }));
     // Start from "now": don't transcribe the whole existing buffer.
     live.system.lock().map_err(|e| e.to_string())?.cursor = system.written_position();
     live.mic.lock().map_err(|e| e.to_string())?.cursor = mic.buffer.written_position();
@@ -507,6 +509,68 @@ pub async fn live_transcript_stop(
         let _ = app.emit("meeting-ended", summary);
     }
     Ok(())
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SpeakerStats {
+    /// "You" for the microphone, otherwise "Speaker N" or "Them".
+    label: String,
+    source: &'static str,
+    lines: usize,
+    words: usize,
+    talk_ms: u64,
+    last_text: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionStats {
+    started_ms: u64,
+    ended_ms: Option<u64>,
+    speakers: Vec<SpeakerStats>,
+}
+
+/// Per-speaker totals for the current (or most recent) session: who spoke,
+/// for how long, and what they said last.
+#[tauri::command]
+pub async fn live_transcript_stats(
+    live: tauri::State<'_, Arc<LiveTranscriber>>,
+) -> Result<SessionStats, String> {
+    let session = live.session.lock().map_err(|e| e.to_string())?;
+    let mut speakers: Vec<SpeakerStats> = Vec::new();
+    let mut ordered: Vec<&LiveSegment> = session.segments.iter().collect();
+    ordered.sort_by_key(|s| (s.start_ms, s.end_ms));
+    for segment in ordered {
+        let label = if segment.source == "mic" {
+            "You".to_string()
+        } else {
+            segment.speaker.clone().unwrap_or_else(|| "Them".to_string())
+        };
+        let entry = match speakers.iter_mut().position(|s| s.label == label) {
+            Some(i) => &mut speakers[i],
+            None => {
+                speakers.push(SpeakerStats {
+                    label,
+                    source: segment.source,
+                    lines: 0,
+                    words: 0,
+                    talk_ms: 0,
+                    last_text: String::new(),
+                });
+                speakers.last_mut().unwrap()
+            }
+        };
+        entry.lines += 1;
+        entry.words += segment.text.split_whitespace().count();
+        entry.talk_ms += segment.end_ms.saturating_sub(segment.start_ms);
+        entry.last_text = segment.text.trim().to_string();
+    }
+    Ok(SessionStats {
+        started_ms: session.started_ms,
+        ended_ms: session.ended_ms,
+        speakers,
+    })
 }
 
 /// The whole transcript of the current (or most recently ended) session.

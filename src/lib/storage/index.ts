@@ -11,3 +11,4 @@ export * from "./personal-context.storage";
 export * from "./provider-secrets.storage";
 export * from "./profiles.storage";
 export * from "./pinned-facts.storage";
+export * from "./speaker-names.storage";

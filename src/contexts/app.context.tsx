@@ -13,6 +13,7 @@ import {
   resolveScreenshotPrompt,
   resolveSystemPrompt,
   useTranscriptionConfig,
+  clearSpeakerNames,
 } from "@/lib/storage";
 import {
   getCustomizableState,
@@ -403,6 +404,14 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     return () => {
       unlistenHide.then((fn) => fn());
       unlistenShow.then((fn) => fn());
+    };
+  }, []);
+
+  // Speaker numbering restarts with each meeting, so names from the last one no longer apply.
+  useEffect(() => {
+    const unlisten = listen("meeting-started", () => clearSpeakerNames());
+    return () => {
+      unlisten.then((fn) => fn());
     };
   }, []);
 

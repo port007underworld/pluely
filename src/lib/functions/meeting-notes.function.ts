@@ -6,6 +6,7 @@ import { appendMessages } from "@/lib/database/chat-history.action";
 import { generateConversationId, generateMessageId, MESSAGE_ID_OFFSET } from "@/lib/chat-constants";
 import { TYPE_PROVIDER } from "@/types";
 import { fetchAIResponse } from "./ai-response.function";
+import { getSpeakerNames, speakerDisplayName, speakerNamesLegend } from "../storage/speaker-names.storage";
 
 export interface MeetingSession {
   startedMs: number;
@@ -29,8 +30,9 @@ export const MIN_NOTES_SEGMENTS = 8;
 const MAX_TRANSCRIPT_CHARS = 300_000;
 
 export function formatSessionTranscript(session: MeetingSession): string {
+  const names = getSpeakerNames();
   const lines = session.segments.map((s) => {
-    const who = s.source === "mic" ? "You" : s.speaker ?? "Them";
+    const who = s.source === "mic" ? "You" : speakerDisplayName(s.speaker ?? "Them", names);
     return `[${moment(s.startMs).format("HH:mm:ss")}] ${who}: ${s.text.trim()}`;
   });
   let text = lines.join("\n");
@@ -39,9 +41,14 @@ export function formatSessionTranscript(session: MeetingSession): string {
     text = `${text.slice(0, half)}\n[… middle of the meeting omitted for length …]\n${text.slice(-half)}`;
   }
   const hasMic = session.segments.some((s) => s.source === "mic");
-  const legend = hasMic
-    ? '"You" is the user; everyone else is another participant.'
-    : "Only the other participants were recorded; the user's own voice is not in the transcript.";
+  const legend = [
+    hasMic
+      ? '"You" is the user; everyone else is another participant.'
+      : "Only the other participants were recorded; the user's own voice is not in the transcript.",
+    speakerNamesLegend(names),
+  ]
+    .filter(Boolean)
+    .join(" ");
   return `<meeting_transcript started="${moment(session.startedMs).format("LLLL")}">\nLegend: ${legend}\n${text}\n</meeting_transcript>`;
 }
 

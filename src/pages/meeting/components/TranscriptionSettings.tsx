@@ -35,6 +35,8 @@ import {
   AUTO_ANSWER_DELAYS,
   TranscriptionEngine,
   useTranscriptionConfig,
+  speakerDisplayName,
+  useSpeakerNames,
 } from "@/lib";
 import { cn } from "@/lib/utils";
 
@@ -143,6 +145,7 @@ export const TranscriptionSettings = () => {
     systemAudioError,
   } = useApp();
   const [config, setConfig] = useTranscriptionConfig();
+  const speakerNames = useSpeakerNames();
   const [models, setModels] = useState<WhisperModel[]>([]);
   const [progress, setProgress] = useState<Record<string, DownloadProgress>>({});
   const [modelError, setModelError] = useState<string | null>(null);
@@ -683,7 +686,10 @@ export const TranscriptionSettings = () => {
                     {liveLines.map((line, i) => (
                       <p key={`${line.startMs}-${i}`} className="text-xs">
                         <span className="font-medium text-muted-foreground">
-                          {line.source === "mic" ? "You" : line.speaker ?? "Them"}:
+                          {line.source === "mic"
+                            ? "You"
+                            : speakerDisplayName(line.speaker ?? "Them", speakerNames)}
+                          :
                         </span>{" "}
                         {line.text}
                       </p>

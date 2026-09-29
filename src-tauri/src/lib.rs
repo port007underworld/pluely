@@ -100,6 +100,7 @@ pub fn run() {
             live_transcript::live_transcript_start,
             live_transcript::live_transcript_stop,
             live_transcript::live_transcript_session,
+            live_transcript::live_transcript_stats,
             live_transcript::live_transcript_status,
             live_transcript::live_transcript_get,
             speaker_id::speaker_model_status,

@@ -1,5 +1,11 @@
 import { useNavigate } from "react-router-dom";
-import { MeetingModeSettings, MeetingNotes, PinnedFacts, TranscriptionSettings } from "./components";
+import {
+  MeetingModeSettings,
+  MeetingNotes,
+  People,
+  PinnedFacts,
+  TranscriptionSettings,
+} from "./components";
 import { useSettings } from "@/hooks";
 import { PageLayout } from "@/layouts";
 import { shortcutLabel } from "@/lib";
@@ -18,6 +24,7 @@ const Meeting = () => {
       <MeetingModeSettings {...settings} />
       <PinnedFacts />
       <TranscriptionSettings />
+      <People />
       <MeetingNotes />
       <p className="text-xs text-muted-foreground">
         No audio coming through?{" "}
