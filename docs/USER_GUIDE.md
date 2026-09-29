@@ -82,24 +82,20 @@ Here's a typical flow from start to finish. Every step is explained in more deta
 
 The overlay is the slim bar that floats above your other windows.
 
-```
-┌────────────────────────────────────────────────────────────────────────┐
-│ [ Ask anything, or /pin a fact…   📌2  💬4 ]  📷  〰  ❓  📎  ⚙  ⠿   │
-│ ▔▔▔▔▔▔▔▔▔▔▔▔▔ (talk-time bar, only in meetings with your mic on)      │
-└────────────────────────────────────────────────────────────────────────┘
-```
+![The Runningbord overlay during a meeting: input box with pin and message counts, then the camera, Meeting mode, Auto-answer, attachments and settings buttons, with the talk-time bar underneath](images/overlay-bar.png)
 
-| Part | What it does |
+| Part (left to right) | What it does |
 |---|---|
 | **Input box** | Type a question and press **Enter**. |
-| **📌 2** | Number of pinned facts. Hover to see them, click to manage them. |
-| **💬 4** | Number of messages in the current conversation. Click to see the whole conversation. |
-| **📷 Camera** | Take a screenshot and ask about it (same as **⌘⇧S**). |
-| **〰 Waveform** | Turn **Meeting mode** on or off. Green dot: listening. Red: it couldn't start; hover for the reason. |
-| **❓ Question mark** | Turn **Auto-answer** on or off. Only shown while Meeting mode is on. A blue dot means it's on. |
-| **📎 Paperclip** | Attached files and screenshots waiting to be sent. |
-| **⚙ Gear** | Open the dashboard. A blue dot means an update is available. |
-| **⠿ Handle** | Drag to move the overlay. |
+| **📌 2** (pin) | Number of pinned facts. Hover to see them, click to manage them. |
+| **💬 4** (speech bubbles) | Number of messages in the current conversation. Click to see the whole conversation. |
+| **Camera** | Take a screenshot and ask about it (same as **⌘⇧S**). |
+| **Waveform** | Turn **Meeting mode** on or off. Green dot: listening. Red button: it couldn't start; hover for the reason. |
+| **Speech bubble with ?** | Turn **Auto-answer** on or off. Only shown while Meeting mode is on. Blue dot: it's on. |
+| **Paperclip** | Attached files and screenshots waiting to be sent. |
+| **Gear** | Open the dashboard. A blue dot means an update is available. |
+| **Six dots** | Drag to move the overlay. |
+| **Thin bar along the bottom** | Your share of the talking in this meeting (only with Meeting mode and your mic on). It turns amber if you're talking much more than everyone else, or for 90 seconds straight. |
 
 **Handy to know**
 - **Show or hide** the overlay with **⌘\\**.
@@ -139,19 +135,9 @@ Press **⌘⇧N** (or the **new chat** button in the answer panel) to start a ne
 
 Answers appear in a panel under the overlay.
 
-```
-┌ AI Response · Context: 4/4 msgs     ‹ 2/3 ›  Fast Slow  💬 ✚ ⧉ ✕ ┐
-│ Auto-answer: Why did you pick Postgres over DynamoDB?              │
-│                                                                    │
-│ Postgres fits because…  (the answer)                               │
-│                                                                    │
-│ LIKELY NEXT                                                        │
-│ [ How would you handle schema migrations? ]                        │
-│ [ What about read replicas? ]                                      │
-│                                                                    │
-│ (Shorter) (Simpler) (Example) (Ask next) (Copy code)               │
-└────────────────────────────────────────────────────────────────────┘
-```
+![The answer panel: header with the answer pager (2/2) and buttons, the question, a formatted answer with a code block, "Likely next" questions and the quick-action buttons](images/overlay-panel.png)
+
+**The header, left to right:** how much conversation was sent with the question, the **‹ 2/2 ›** answer pager, then **whole conversation**, **new chat**, **copy** and **close / stop**.
 
 | Feature | How to use it |
 |---|---|

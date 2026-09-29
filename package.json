@@ -37,7 +37,8 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "tauri": "node scripts/tauri.mjs"
+    "tauri": "node scripts/tauri.mjs",
+    "docs:screenshots": "node scripts/docs-screenshots/capture.mjs"
   },
   "dependencies": {
     "@bany/curl-to-json": "^1.2.8",
