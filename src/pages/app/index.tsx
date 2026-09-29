@@ -1,5 +1,6 @@
 import { Card, DragButton, CustomCursor, Button } from "@/components";
 import { Completion } from "./components";
+import { TalkTimeBar } from "./components/TalkTimeBar";
 import { useApp, useAutoMeetingNotes } from "@/hooks";
 import { useApp as useAppContext } from "@/contexts";
 import { SettingsIcon } from "lucide-react";
@@ -41,7 +42,7 @@ const App = () => {
           isHidden ? "hidden pointer-events-none" : ""
         }`}
       >
-        <Card className="w-full flex flex-row items-center gap-2 p-2">
+        <Card className="relative w-full flex flex-row items-center gap-2 p-2">
           <div className="w-full flex flex-row gap-2 items-center">
             <Completion isHidden={isHidden} />
             <Button
@@ -63,6 +64,7 @@ const App = () => {
             </Button>
           </div>
           <DragButton />
+          <TalkTimeBar />
         </Card>
         {customizable.cursor.type === "invisible" && platform !== "linux" ? (
           <CustomCursor />

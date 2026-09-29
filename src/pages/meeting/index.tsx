@@ -4,6 +4,7 @@ import {
   MeetingNotes,
   People,
   PinnedFacts,
+  TalkTime,
   TranscriptionSettings,
 } from "./components";
 import { useSettings } from "@/hooks";
@@ -25,6 +26,7 @@ const Meeting = () => {
       <PinnedFacts />
       <TranscriptionSettings />
       <People />
+      <TalkTime />
       <MeetingNotes />
       <p className="text-xs text-muted-foreground">
         No audio coming through?{" "}

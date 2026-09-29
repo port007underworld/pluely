@@ -529,6 +529,42 @@ pub struct SessionStats {
     started_ms: u64,
     ended_ms: Option<u64>,
     speakers: Vec<SpeakerStats>,
+    /// Longest stretch of the user talking without anyone else speaking.
+    longest_monologue_ms: u64,
+    /// The stretch the user is in right now (0 if someone else spoke last or
+    /// the user has been quiet for a few seconds).
+    current_monologue_ms: u64,
+}
+
+/// A pause longer than this ends the user's current stretch of talking.
+const MONOLOGUE_GAP_MS: u64 = 5_000;
+
+/// (longest, current) stretch of the user talking with nobody else speaking in
+/// between, from segments in time order. A pause over MONOLOGUE_GAP_MS ends a
+/// stretch; the current one only counts while the session runs.
+fn monologues(ordered: &[&LiveSegment], ended: bool, now: u64) -> (u64, u64) {
+    let mut longest = 0;
+    let mut run: Option<(u64, u64)> = None;
+    for segment in ordered {
+        if segment.source == "mic" {
+            run = match run {
+                Some((start, end)) if segment.start_ms <= end + MONOLOGUE_GAP_MS => {
+                    Some((start, end.max(segment.end_ms)))
+                }
+                _ => Some((segment.start_ms, segment.end_ms)),
+            };
+            if let Some((start, end)) = run {
+                longest = longest.max(end - start);
+            }
+        } else {
+            run = None;
+        }
+    }
+    let current = match run {
+        Some((start, end)) if !ended && now <= end + MONOLOGUE_GAP_MS => end - start,
+        _ => 0,
+    };
+    (longest, current)
 }
 
 /// Per-speaker totals for the current (or most recent) session: who spoke,
@@ -541,6 +577,8 @@ pub async fn live_transcript_stats(
     let mut speakers: Vec<SpeakerStats> = Vec::new();
     let mut ordered: Vec<&LiveSegment> = session.segments.iter().collect();
     ordered.sort_by_key(|s| (s.start_ms, s.end_ms));
+    let (longest_monologue_ms, current_monologue_ms) =
+        monologues(&ordered, session.ended_ms.is_some(), now_ms());
     for segment in ordered {
         let label = if segment.source == "mic" {
             "You".to_string()
@@ -570,6 +608,8 @@ pub async fn live_transcript_stats(
         started_ms: session.started_ms,
         ended_ms: session.ended_ms,
         speakers,
+        longest_monologue_ms,
+        current_monologue_ms,
     })
 }
 
@@ -862,5 +902,30 @@ mod tests {
         assert_eq!(chunks.len(), 4);
         assert!(chunks.iter().all(|c| c.samples.len() <= MAX_UTTERANCE));
         assert!(track.in_progress("system").is_some());
+    }
+}
+
+#[cfg(test)]
+mod monologue_tests {
+    use super::*;
+
+    fn seg(source: &'static str, start_ms: u64, end_ms: u64) -> LiveSegment {
+        LiveSegment { source, start_ms, end_ms, text: String::new(), speaker: None }
+    }
+
+    #[test]
+    fn stretches_break_on_other_speakers_and_long_pauses() {
+        let segments = [
+            seg("mic", 0, 10_000),
+            seg("mic", 12_000, 30_000), // short pause: same stretch (30s)
+            seg("system", 31_000, 35_000),
+            seg("mic", 36_000, 40_000),
+            seg("mic", 50_000, 70_000), // 10s pause: new stretch (20s)
+        ];
+        let ordered: Vec<&LiveSegment> = segments.iter().collect();
+        assert_eq!(monologues(&ordered, false, 72_000), (30_000, 20_000));
+        // Quiet for a while, or the meeting ended: no current stretch.
+        assert_eq!(monologues(&ordered, false, 90_000), (30_000, 0));
+        assert_eq!(monologues(&ordered, true, 72_000), (30_000, 0));
     }
 }
