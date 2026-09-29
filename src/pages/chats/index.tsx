@@ -8,8 +8,12 @@ import { useNavigate } from "react-router-dom";
 const Dashboard = () => {
   const conversations = useHistory();
   const navigate = useNavigate();
+  const { searchResults } = conversations;
+  const visible = searchResults
+    ? conversations.conversations.filter((c) => searchResults.has(c.id))
+    : conversations.conversations;
   // Group conversations by date
-  const groupedConversations = conversations.conversations.reduce(
+  const groupedConversations = visible.reduce(
     (acc, doc) => {
       const dateKey = moment(doc.updatedAt).format("YYYY-MM-DD");
       if (!acc[dateKey]) {
@@ -41,26 +45,20 @@ const Dashboard = () => {
           />
         ) : (
           <div className="flex flex-col gap-6 pb-8">
-            <div className="relative mb-4 w-1/3">
+            <div className="relative mb-4 w-1/2">
               <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 type="text"
-                placeholder="Search conversations..."
+                placeholder="Search titles, messages and transcripts..."
                 className="pl-9 focus-visible:ring-0 focus-visible:ring-offset-0"
                 value={conversations.search}
                 onChange={(e) => conversations.setSearch(e.target.value)}
               />
             </div>
+            {searchResults && visible.length === 0 && (
+              <p className="text-sm text-muted-foreground">No conversations mention "{conversations.search.trim()}".</p>
+            )}
             {sortedDates
-              .filter((dateKey) =>
-                conversations?.search?.length === 0
-                  ? true
-                  : groupedConversations?.[dateKey]?.some((doc) =>
-                      doc?.title
-                        .toLowerCase()
-                        .includes(conversations?.search?.toLowerCase() || "")
-                    )
-              )
               .map((dateKey) => (
                 <div key={dateKey} className="flex flex-col gap-3">
                   <p className="text-xs text-muted-foreground select-none font-medium">
@@ -86,6 +84,11 @@ const Dashboard = () => {
                             </Badge>
                           </div>
                         </div>
+                        {searchResults?.get(doc.id) && (
+                          <p className="mt-2 text-xs text-muted-foreground line-clamp-2">
+                            {searchResults.get(doc.id)}
+                          </p>
+                        )}
                       </Card>
                     ))}
                   </div>

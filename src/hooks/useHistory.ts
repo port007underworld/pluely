@@ -3,6 +3,7 @@ import {
   listConversations,
   getConversationById,
   deleteConversation,
+  searchConversations,
   exportConversations,
   DOWNLOAD_SUCCESS_DISPLAY_MS,
   MEETING_NOTES_SAVED_EVENT,
@@ -37,6 +38,8 @@ export interface UseHistoryReturn {
     e: React.MouseEvent
   ) => Promise<void>;
   search: string;
+  /** Matches for `search` (id → message snippet, or null for a title match); null while not searching. */
+  searchResults: Map<string, string | null> | null;
   setSearch: React.Dispatch<React.SetStateAction<string>>;
   // Utilities
   refreshConversations: () => void;
@@ -48,6 +51,28 @@ export function useHistory({ loadList = true }: { loadList?: boolean } = {}): Us
   const [isLoading, setIsLoading] = useState(false);
   const [conversations, setConversations] = useState<ChatConversation[]>([]);
   const [search, setSearch] = useState("");
+  const [searchResults, setSearchResults] = useState<Map<string, string | null> | null>(null);
+
+  // Search titles and message text (debounced; transcripts can be long).
+  useEffect(() => {
+    const q = search.trim();
+    if (!q) {
+      setSearchResults(null);
+      return;
+    }
+    let stale = false;
+    const timer = setTimeout(() => {
+      searchConversations(q)
+        .then((results) => {
+          if (!stale) setSearchResults(results);
+        })
+        .catch((error) => console.error("Search failed:", error));
+    }, 200);
+    return () => {
+      stale = true;
+      clearTimeout(timer);
+    };
+  }, [search]);
   const [selectedConversationId, setSelectedConversationId] = useState<
     string | null
   >(null);
@@ -201,6 +226,7 @@ export function useHistory({ loadList = true }: { loadList?: boolean } = {}): Us
     // Utilities
     refreshConversations,
     search,
+    searchResults,
     setSearch,
     isLoading,
   };

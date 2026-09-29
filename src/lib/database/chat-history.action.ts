@@ -284,6 +284,44 @@ export async function getAllConversations(): Promise<ChatConversation[]> {
   }));
 }
 
+/** Text around the first match, on one line. */
+function snippetAround(text: string, query: string, radius = 70): string {
+  const flat = text.replace(/\s+/g, " ");
+  const at = flat.toLowerCase().indexOf(query.toLowerCase());
+  if (at < 0) return flat.slice(0, radius * 2);
+  const start = Math.max(0, at - radius);
+  const end = Math.min(flat.length, at + query.length + radius);
+  return `${start > 0 ? "…" : ""}${flat.slice(start, end)}${end < flat.length ? "…" : ""}`;
+}
+
+/**
+ * Conversations whose title or any message (including meeting transcripts)
+ * contains `query`, case-insensitively. Maps id → snippet of the most recent
+ * matching message, or null when only the title matched.
+ */
+export async function searchConversations(query: string): Promise<Map<string, string | null>> {
+  const q = query.trim();
+  const results = new Map<string, string | null>();
+  if (!q) return results;
+  const pattern = `%${q.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+  const db = await getDatabase();
+  const rows = await db.select<{ id: string; hit: string | null }[]>(
+    `SELECT c.id,
+       (SELECT m.content FROM messages m
+        WHERE m.conversation_id = c.id AND m.content LIKE ? ESCAPE '\\'
+        ORDER BY m.timestamp DESC LIMIT 1) AS hit
+     FROM conversations c
+     WHERE c.title LIKE ? ESCAPE '\\'
+        OR EXISTS (SELECT 1 FROM messages m
+                   WHERE m.conversation_id = c.id AND m.content LIKE ? ESCAPE '\\')`,
+    [pattern, pattern, pattern]
+  );
+  for (const row of rows) {
+    results.set(row.id, row.hit ? snippetAround(row.hit, q) : null);
+  }
+  return results;
+}
+
 const MAX_TITLE_LENGTH = 80;
 
 /**
