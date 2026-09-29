@@ -1,20 +1,19 @@
-import { ScreenshotConfigs, TranscriptionSettings } from "./components";
+import { ScreenshotConfigs } from "./components";
 import { useSettings } from "@/hooks";
 import { PageLayout } from "@/layouts";
+import { shortcutLabel } from "@/lib";
 
-const Settings = () => {
+const Screenshot = () => {
   const settings = useSettings();
+  const key = shortcutLabel("screenshot");
   return (
     <PageLayout
-      title="Screenshot & Audio"
-      description="Manage screenshot capture, meeting audio and transcription"
+      title="Screenshot"
+      description={`Press ${key || "the screenshot shortcut"} (or the camera button in the overlay) to show the AI what's on your screen. With Meeting mode on, it also gets what was just said.`}
     >
-      {/* Screenshot Configs */}
       <ScreenshotConfigs {...settings} />
-
-      <TranscriptionSettings />
     </PageLayout>
   );
 };
 
-export default Settings;
+export default Screenshot;

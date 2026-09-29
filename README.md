@@ -17,7 +17,7 @@ When **Meeting mode** is on (speaker icon in the overlay, or its shortcut), the 
   - "Them" is the other participants (computer audio).
   - "You" is you (microphone, optional).
   - "Speaker 1", "Speaker 2"… appear when speaker separation is on.
-- **Choose where transcription happens** (Screenshot & Audio › Meeting Transcription):
+- **Choose where transcription happens** (**Meeting** page):
   - **On this device** (default): Whisper runs locally. It's free and private. Pick a model from Tiny to Large v3 Turbo, and download it in-app.
   - **Cloud provider** (opt-in): uses the speech-to-text provider configured in Dev Space (Google, Groq, OpenAI, Deepgram, …). Audio is sent only when you press the shortcut.
   - **Raw audio** (advanced): attaches the audio file itself, for AI providers that accept audio (e.g. Gemini).
@@ -44,7 +44,7 @@ When **Meeting mode** is on (speaker icon in the overlay, or its shortcut), the 
 The default prompts make the AI answer the one thing you need right now: the question just asked in the meeting, or the code, error or problem on screen. It leads with the answer (code, fix, or what to say) and ignores incidental details like browser tabs, notifications, file trees and meeting UI.
 
 - **Built-in presets** (System Prompts page): **Coding Copilot** (default), **Technical Interview** (say-it-out-loud answers, complete code with complexity, system design and behavioral formats), **Debugging** (root cause, then the exact fix) and **Code Review** (real bugs and edge cases, no style nitpicks). Click one to use it, or **Customize** to make an editable copy.
-- **Screenshot prompt** (Screenshot & Audio › Auto Prompt): what to do with each capture. It checks the latest question in the transcript first, then the main thing on screen. **Reset to default** restores it.
+- **Screenshot instructions** (**Screenshot** page, "Instructions sent with each screenshot"): what to do with each capture. It checks the latest question in the transcript first, then the main thing on screen. **Reset to default** restores it.
 - If you never changed the old default prompts, you get the new ones automatically. Prompts you edited are kept.
 
 ## My Context

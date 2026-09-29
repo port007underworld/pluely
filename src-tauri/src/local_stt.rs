@@ -347,7 +347,7 @@ pub(crate) fn context_for(
     let path = model_path(app, id)?;
     if !path.exists() {
         return Err(format!(
-            "Whisper model '{}' is not downloaded. Download it under Screenshot & Audio > Meeting Transcription.",
+            "Whisper model '{}' is not downloaded. Download it on the Meeting page (Meeting transcription).",
             id
         ));
     }

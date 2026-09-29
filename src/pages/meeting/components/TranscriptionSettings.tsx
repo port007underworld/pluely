@@ -684,7 +684,7 @@ export const TranscriptionSettings = () => {
                       ? windowLabel(config.transcriptWindowSeconds)
                       : `${systemAudioDaemonConfig.bufferSeconds} seconds`
                   } exactly as the shortcut would.`
-                : "Turn on Meeting mode (speaker icon in the overlay) to test."}
+                : "Turn on Meeting mode above to test."}
             </p>
           </div>
           <Button

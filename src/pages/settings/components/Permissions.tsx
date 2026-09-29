@@ -152,7 +152,7 @@ export const Permissions = () => {
 
       <Row
         title="Microphone"
-        description='Only needed for "Also capture my microphone" in Meeting Transcription.'
+        description='Only needed for "Also capture my microphone" on the Meeting page.'
         status={mic}
         statusText={label(mic)}
       >

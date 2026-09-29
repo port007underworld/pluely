@@ -150,7 +150,7 @@ async function fallbackToRaw(
 }
 
 /**
- * Grab the recent meeting audio in the form the user chose in Settings > Transcription.
+ * Grab the recent meeting audio in the form the user chose on the Meeting page.
  * Never throws: failures come back as `warning` so the screenshot request still goes out.
  */
 export async function captureMeetingAudio(options: {

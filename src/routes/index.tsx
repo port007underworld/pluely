@@ -11,6 +11,7 @@ import {
   Chats,
   Responses,
   MyContext,
+  Meeting,
 } from "@/pages";
 import { DashboardLayout } from "@/layouts";
 
@@ -27,6 +28,7 @@ export default function AppRoutes() {
           <Route path="/chats/view/:conversationId" element={<ViewChat />} />
           <Route path="/shortcuts" element={<Shortcuts />} />
           <Route path="/screenshot" element={<Screenshot />} />
+          <Route path="/meeting" element={<Meeting />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="/responses" element={<Responses />} />
           <Route path="/dev-space" element={<DevSpace />} />

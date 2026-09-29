@@ -3,7 +3,8 @@ import {
   MessagesSquare,
   WandSparkles,
   SquareSlashIcon,
-  MonitorIcon,
+  CameraIcon,
+  AudioLinesIcon,
   HomeIcon,
   PowerIcon,
   MessageSquareTextIcon,
@@ -52,9 +53,14 @@ export const useMenuItems = () => {
       href: "/responses",
     },
     {
-      icon: MonitorIcon,
-      label: "Screenshot & Audio",
+      icon: CameraIcon,
+      label: "Screenshot",
       href: "/screenshot",
+    },
+    {
+      icon: AudioLinesIcon,
+      label: "Meeting",
+      href: "/meeting",
     },
     {
       icon: SquareSlashIcon,

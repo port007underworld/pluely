@@ -22,7 +22,7 @@ export const STTProviders = (settings: UseSettingsReturn) => {
       <div className="flex items-start gap-2 rounded-lg border border-input/50 bg-muted/30 p-3">
         <InfoIcon className="size-4 mt-0.5 shrink-0 text-muted-foreground" />
         <p className="text-xs text-muted-foreground">
-          These settings are only used when Meeting Transcription is set to{" "}
+          These settings are only used when Meeting transcription is set to{" "}
           <strong>Cloud provider</strong>.{" "}
           {inUse
             ? "That's the current setting, so the provider selected here transcribes your meeting audio."
@@ -30,9 +30,9 @@ export const STTProviders = (settings: UseSettingsReturn) => {
           <button
             type="button"
             className="underline underline-offset-2 hover:text-foreground cursor-pointer"
-            onClick={() => navigate("/screenshot")}
+            onClick={() => navigate("/meeting")}
           >
-            Change in Screenshot &amp; Audio
+            Change on the Meeting page
           </button>
         </p>
       </div>
