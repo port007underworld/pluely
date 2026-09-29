@@ -7,6 +7,7 @@ import {
   HomeIcon,
   PowerIcon,
   MessageSquareTextIcon,
+  UserRoundIcon,
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { useApp } from "@/contexts";
@@ -34,6 +35,11 @@ export const useMenuItems = () => {
       icon: WandSparkles,
       label: "System prompts",
       href: "/system-prompts",
+    },
+    {
+      icon: UserRoundIcon,
+      label: "My Context",
+      href: "/context",
     },
     {
       icon: Settings,

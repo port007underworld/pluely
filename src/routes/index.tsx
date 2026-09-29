@@ -10,6 +10,7 @@ import {
   Screenshot,
   Chats,
   Responses,
+  MyContext,
 } from "@/pages";
 import { DashboardLayout } from "@/layouts";
 
@@ -22,6 +23,7 @@ export default function AppRoutes() {
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/chats" element={<Chats />} />
           <Route path="/system-prompts" element={<SystemPrompts />} />
+          <Route path="/context" element={<MyContext />} />
           <Route path="/chats/view/:conversationId" element={<ViewChat />} />
           <Route path="/shortcuts" element={<Shortcuts />} />
           <Route path="/screenshot" element={<Screenshot />} />

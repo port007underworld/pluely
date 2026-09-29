@@ -47,6 +47,14 @@ The default prompts make the AI answer the one thing you need right now: the que
 - **Screenshot prompt** (Screenshot & Audio › Auto Prompt): what to do with each capture. It checks the latest question in the transcript first, then the main thing on screen. **Reset to default** restores it.
 - If you never changed the old default prompts, you get the new ones automatically. Prompts you edited are kept.
 
+## My Context
+
+Give the AI background about yourself on the **My Context** page: upload your resume or a job description (PDF, TXT or Markdown), or write notes (your role, stack, projects you want to highlight). It's added to every request as reference material. The AI uses it only when it helps, for example answering "tell me about yourself" with your real experience or matching what the role asks for. It's told never to invent experience that isn't there.
+
+- Each item has its own on/off switch, so you can keep several (e.g. job descriptions for different companies) and turn on only what fits today's interview or meeting.
+- Files are read on your device and only the extracted text is kept. You can review and correct it. Scanned PDFs (images of text) aren't supported, so paste the text instead.
+- Active context is capped at about 12k tokens and is added to every request, so keep it focused. The page shows the current size.
+
 ## Troubleshooting
 
 - **Dev Space › Recent Requests** shows exactly what was sent for the last 25 questions: history, attachments, transcript, token estimate, timing and errors. It's stored only on your device and never includes API keys.

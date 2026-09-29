@@ -20,6 +20,7 @@ export const STORAGE_KEYS = {
   TRANSCRIPTION_CONFIG: "transcription_config",
   CONVERSATION_SETTINGS: "conversation_settings",
   SELECTED_PROMPT_PRESET: "selected_prompt_preset",
+  PERSONAL_CONTEXT: "personal_context",
 } as const;
 
 // Max number of files that can be attached to a message

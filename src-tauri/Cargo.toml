@@ -54,6 +54,7 @@ ogg = "0.9"
 opus = "0.3"
 rfd = "0.15"
 cpal = "0.15"
+pdf-extract = "0.12"
 whisper-rs = { version = "0.16", features = ["tracing_backend"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]

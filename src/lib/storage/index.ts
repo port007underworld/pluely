@@ -7,3 +7,4 @@ export * from "./response-settings.storage";
 export * from "./transcription.storage";
 export * from "./conversation.storage";
 export * from "./prompt-presets.storage";
+export * from "./personal-context.storage";

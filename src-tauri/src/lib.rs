@@ -3,6 +3,7 @@ mod activate;
 mod api;
 mod capture;
 mod db;
+mod documents;
 mod local_stt;
 mod mic_audio;
 mod live_transcript;
@@ -129,6 +130,7 @@ pub fn run() {
             speaker_id::speaker_model_status,
             speaker_id::speaker_model_download,
             speaker_id::speaker_model_delete,
+            documents::extract_document_text,
             api::transcribe_audio,
             api::chat_stream_response,
             api::chat_stream_cancel,

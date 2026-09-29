@@ -10,7 +10,12 @@ import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import { Channel, invoke } from "@tauri-apps/api/core";
 import curl2Json from "@bany/curl-to-json";
 import { shouldUseRunningbordAPI } from "./runningbord.api";
-import { getResponseSettings, RESPONSE_LENGTHS, LANGUAGES } from "@/lib";
+import {
+  buildPersonalContextBlock,
+  getResponseSettings,
+  RESPONSE_LENGTHS,
+  LANGUAGES,
+} from "@/lib";
 import { MARKDOWN_FORMATTING_INSTRUCTIONS } from "@/config/constants";
 import { firstLine, recordRequest, RequestLogEntry, truncateForLog } from "../request-log";
 
@@ -88,7 +93,8 @@ function buildEnhancedSystemPrompt(baseSystemPrompt?: string): string {
   // Add markdown formatting instructions
   prompts.push(MARKDOWN_FORMATTING_INSTRUCTIONS);
 
-  return prompts.join(" ");
+  const personalContext = buildPersonalContextBlock();
+  return personalContext ? `${prompts.join(" ")}\n\n${personalContext}` : prompts.join(" ");
 }
 
 type ChatStreamEvent = { event: "chunk"; data: string } | { event: "done" };
