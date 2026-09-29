@@ -66,9 +66,6 @@ whisper-rs = { version = "0.16", features = ["metal"] }
 sherpa-rs = { version = "0.6.8", default-features = false, features = ["download-binaries", "static"] }
 objc2-foundation = { version = "0.3", features = ["NSArray", "NSString", "NSUUID", "NSValue", "alloc"] }
 
-[target.'cfg(target_os = "linux")'.dependencies]
-pipewire = "0.9"
-
 
 
 # Build scripts (e.g. sherpa-rs unpacking its prebuilt archive, whisper-rs) are

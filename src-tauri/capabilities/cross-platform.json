@@ -1,9 +1,9 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "cross-platform",
-  "description": "Capability for the main window on Windows and Linux",
+  "description": "Capability for the main window on Windows",
   "windows": ["main", "dashboard"],
-  "platforms": ["windows", "linux"],
+  "platforms": ["windows"],
   "permissions": [
     "core:default",
     "opener:default",

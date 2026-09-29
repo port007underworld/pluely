@@ -2,7 +2,6 @@
 //! and returns them as Opus/OGG base64 when requested (e.g. on screenshot shortcut).
 //!
 //! On macOS 14.2+: uses Core Audio Process Tap API (no BlackHole required).
-//! On Linux (Ubuntu 24+): uses PipeWire sink monitor capture.
 //! On Windows 10/11: uses WASAPI loopback capture via cpal.
 //! On other platforms: returns "unsupported".
 
@@ -481,13 +480,6 @@ pub async fn system_audio_start(
             return Err(e);
         }
     }
-    #[cfg(target_os = "linux")]
-    {
-        if let Err(e) = crate::system_audio_linux::start_capture(state.inner().clone()).await {
-            state.recording.store(false, Ordering::SeqCst);
-            return Err(e);
-        }
-    }
     #[cfg(target_os = "windows")]
     {
         if let Err(e) = crate::system_audio_windows::start_capture(state.inner().clone()).await {
@@ -495,7 +487,7 @@ pub async fn system_audio_start(
             return Err(e);
         }
     }
-    #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
         let _ = buffer_seconds;
         state.recording.store(false, Ordering::SeqCst);
@@ -511,10 +503,6 @@ pub async fn system_audio_stop(state: tauri::State<'_, Arc<SystemAudioState>>) -
     #[cfg(target_os = "macos")]
     {
         crate::system_audio_macos::stop_capture().await;
-    }
-    #[cfg(target_os = "linux")]
-    {
-        crate::system_audio_linux::stop_capture().await;
     }
     #[cfg(target_os = "windows")]
     {
@@ -563,7 +551,7 @@ pub async fn system_audio_status(
     Ok(SystemAudioStatus {
         recording: state.is_recording(),
         buffer_seconds,
-        supported: cfg!(any(target_os = "macos", target_os = "linux", target_os = "windows")),
+        supported: cfg!(any(target_os = "macos", target_os = "windows")),
     })
 }
 

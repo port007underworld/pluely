@@ -7,7 +7,7 @@ AI assistant that integrates better with you.
 - Auto screenshot upload with automatic prompt on key press.
 - Ability to choose between fast and slow models (pro, reasoning etc.) through a chat UI toggle, if specified in Dev Space/dashboard settings.
 
-Added builds for mac arm64 / windows amd64
+**Supported platforms:** macOS (Apple Silicon and Intel) and Windows (x64). Linux is not supported.
 
 ## Meeting transcription
 
@@ -60,7 +60,6 @@ The default prompts make the AI answer the one thing you need right now: the que
 - Node.js LTS and Rust stable (`rustup`).
 - CMake (whisper.cpp is compiled from source).
 - macOS: Xcode Command Line Tools (`xcode-select --install`).
-- Linux: the packages listed in `.github/workflows/publish.yml` ("Install system deps").
 - Windows: Visual Studio Build Tools (C++).
 
 **Commands**

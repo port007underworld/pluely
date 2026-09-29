@@ -14,9 +14,6 @@ mod window;
 #[cfg(target_os = "macos")]
 mod system_audio_macos;
 
-#[cfg(target_os = "linux")]
-mod system_audio_linux;
-
 #[cfg(target_os = "windows")]
 mod system_audio_windows;
 

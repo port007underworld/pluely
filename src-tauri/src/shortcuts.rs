@@ -501,18 +501,6 @@ pub fn set_app_icon_visibility<R: Runtime>(app: AppHandle<R>, visible: bool) -> 
         }
     }
 
-    #[cfg(target_os = "linux")]
-    {
-        // On Linux, control panel icon visibility
-        if let Some(window) = app.get_webview_window("main") {
-            window
-                .set_skip_taskbar(!visible)
-                .map_err(|e| format!("Failed to set panel visibility: {}", e))?;
-        } else {
-            eprintln!("Main window not found on Linux");
-        }
-    }
-
     Ok(())
 }
 
