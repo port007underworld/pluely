@@ -119,3 +119,22 @@ Skip everything else on screen.`,
 export const autoAnswerPrompt = (question: string) =>
   `Another participant just asked: "${question}"
 Give me the answer to say out loud: lead with the direct answer in one or two sentences, then any key supporting points. Use the meeting transcript for context. If it wasn't really a question for me, reply with only "No answer needed."`;
+
+export const MEETING_NOTES_PROMPT = `Write notes for the meeting transcribed below. Use this structure, in Markdown:
+
+## Summary
+Three to five sentences on what the meeting was about and where it ended up.
+
+## Key points
+The important points that were discussed, as bullets.
+
+## Decisions
+Bullets; write "None recorded." if there were none.
+
+## Action items
+Bullets as "Owner: task (due date if mentioned)". Use "You" for the user. Write "None recorded." if there were none.
+
+## Open questions
+Anything left unresolved; omit this section if there is nothing.
+
+Base everything on the transcript only. It was produced by automatic speech recognition, so fix obvious mis-hearings silently but don't invent details.`;

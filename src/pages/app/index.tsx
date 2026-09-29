@@ -1,6 +1,6 @@
 import { Card, DragButton, CustomCursor, Button } from "@/components";
 import { Completion } from "./components";
-import { useApp } from "@/hooks";
+import { useApp, useAutoMeetingNotes } from "@/hooks";
 import { useApp as useAppContext } from "@/contexts";
 import { SettingsIcon } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
@@ -10,6 +10,7 @@ import { getPlatform, shortcutLabel, useUpdater } from "@/lib";
 
 const App = () => {
   const { isHidden } = useApp();
+  useAutoMeetingNotes();
   const { customizable } = useAppContext();
   const platform = getPlatform();
 

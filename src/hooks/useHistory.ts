@@ -5,7 +5,9 @@ import {
   deleteConversation,
   exportConversations,
   DOWNLOAD_SUCCESS_DISPLAY_MS,
+  MEETING_NOTES_SAVED_EVENT,
 } from "@/lib";
+import { listen } from "@tauri-apps/api/event";
 import { ChatConversation } from "@/types/completion";
 
 export type UseHistoryType = ReturnType<typeof useHistory>;
@@ -77,6 +79,15 @@ export function useHistory({ loadList = true }: { loadList?: boolean } = {}): Us
   // Load conversations when component mounts or popover opens
   useEffect(() => {
     if (loadList) refreshConversations();
+  }, [refreshConversations, loadList]);
+
+  // Meeting notes are saved from another window; show them without a reload.
+  useEffect(() => {
+    if (!loadList) return;
+    const unlisten = listen(MEETING_NOTES_SAVED_EVENT, () => refreshConversations());
+    return () => {
+      unlisten.then((fn) => fn());
+    };
   }, [refreshConversations, loadList]);
 
   const handleViewConversation = (conversation: ChatConversation) => {

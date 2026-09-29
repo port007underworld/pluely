@@ -209,6 +209,20 @@ pub struct LiveTranscriber {
     extractor: Mutex<Option<Extractor>>,
     last_error: Mutex<Option<String>>,
     worker: Mutex<Option<thread::JoinHandle<()>>>,
+    /// Everything transcribed since Meeting mode was turned on, for meeting
+    /// notes. Kept after stopping until the next session starts.
+    session: Mutex<Session>,
+}
+
+/// Lines kept per session (several hours of conversation).
+const SESSION_MAX_SEGMENTS: usize = 20_000;
+
+#[derive(Default, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Session {
+    started_ms: u64,
+    ended_ms: Option<u64>,
+    segments: Vec<LiveSegment>,
 }
 
 #[derive(Serialize)]
@@ -312,6 +326,11 @@ impl Deps {
         }
         for segment in &new {
             let _ = self.app.emit("live-transcript-segment", segment.clone());
+        }
+        if let Ok(mut session) = self.live.session.lock() {
+            if session.segments.len() < SESSION_MAX_SEGMENTS {
+                session.segments.extend(new.iter().cloned());
+            }
         }
         if let Ok(mut segments) = self.live.segments.lock() {
             segments.extend(new);
@@ -437,6 +456,10 @@ pub async fn live_transcript_start(
     if live.running.swap(true, Ordering::SeqCst) {
         return Ok(()); // already running; config updated above
     }
+    *live.session.lock().map_err(|e| e.to_string())? = Session {
+        started_ms: now_ms(),
+        ..Session::default()
+    };
     // Start from "now": don't transcribe the whole existing buffer.
     live.system.lock().map_err(|e| e.to_string())?.cursor = system.written_position();
     live.mic.lock().map_err(|e| e.to_string())?.cursor = mic.buffer.written_position();
@@ -457,8 +480,11 @@ pub async fn live_transcript_start(
 }
 
 #[tauri::command]
-pub async fn live_transcript_stop(live: tauri::State<'_, Arc<LiveTranscriber>>) -> Result<(), String> {
-    live.running.store(false, Ordering::SeqCst);
+pub async fn live_transcript_stop(
+    app: AppHandle,
+    live: tauri::State<'_, Arc<LiveTranscriber>>,
+) -> Result<(), String> {
+    let was_running = live.running.swap(false, Ordering::SeqCst);
     let handle = live.worker.lock().map_err(|e| e.to_string())?.take();
     if let Some(handle) = handle {
         let _ = tauri::async_runtime::spawn_blocking(move || handle.join()).await;
@@ -468,7 +494,29 @@ pub async fn live_transcript_stop(live: tauri::State<'_, Arc<LiveTranscriber>>) 
     live.segments.lock().map_err(|e| e.to_string())?.clear();
     // A new session is a new meeting: forget the voices.
     live.speakers.lock().map_err(|e| e.to_string())?.reset();
+    if was_running {
+        let summary = {
+            let mut session = live.session.lock().map_err(|e| e.to_string())?;
+            session.ended_ms = Some(now_ms());
+            serde_json::json!({
+                "startedMs": session.started_ms,
+                "endedMs": session.ended_ms,
+                "segmentCount": session.segments.len(),
+            })
+        };
+        let _ = app.emit("meeting-ended", summary);
+    }
     Ok(())
+}
+
+/// The whole transcript of the current (or most recently ended) session.
+#[tauri::command]
+pub async fn live_transcript_session(
+    live: tauri::State<'_, Arc<LiveTranscriber>>,
+) -> Result<Session, String> {
+    let mut session = live.session.lock().map_err(|e| e.to_string())?.clone();
+    session.segments.sort_by_key(|s| (s.start_ms, s.end_ms));
+    Ok(session)
 }
 
 #[tauri::command]

@@ -26,6 +26,8 @@ export interface TranscriptionConfig {
   autoAnswer: boolean;
   /** Include a screenshot with automatic answers. */
   autoAnswerScreenshot: boolean;
+  /** Write meeting notes from the live transcript when Meeting mode is turned off. */
+  meetingNotes: boolean;
 }
 
 export const TRANSCRIPT_WINDOWS = [30, 60, 120, 300, 600];
@@ -40,6 +42,7 @@ export const DEFAULT_TRANSCRIPTION_CONFIG: TranscriptionConfig = {
   separateSpeakers: false,
   autoAnswer: false,
   autoAnswerScreenshot: false,
+  meetingNotes: false,
 };
 
 const CHANGE_EVENT = "transcription-config-changed";
@@ -76,6 +79,7 @@ export const getTranscriptionConfig = (): TranscriptionConfig => {
           : DEFAULT_TRANSCRIPTION_CONFIG.separateSpeakers,
       autoAnswer: parsed.autoAnswer === true,
       autoAnswerScreenshot: parsed.autoAnswerScreenshot === true,
+      meetingNotes: parsed.meetingNotes === true,
     };
   } catch {
     return DEFAULT_TRANSCRIPTION_CONFIG;

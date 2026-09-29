@@ -1,5 +1,5 @@
 import { useNavigate } from "react-router-dom";
-import { MeetingModeSettings, TranscriptionSettings } from "./components";
+import { MeetingModeSettings, MeetingNotes, TranscriptionSettings } from "./components";
 import { useSettings } from "@/hooks";
 import { PageLayout } from "@/layouts";
 import { shortcutLabel } from "@/lib";
@@ -17,6 +17,7 @@ const Meeting = () => {
     >
       <MeetingModeSettings {...settings} />
       <TranscriptionSettings />
+      <MeetingNotes />
       <p className="text-xs text-muted-foreground">
         No audio coming through?{" "}
         <button
