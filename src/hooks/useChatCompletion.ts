@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { useApp } from "@/contexts";
+import type { AttachedFile } from "@/types";
 import { MAX_FILES } from "@/config";
 import {
   fetchAIResponse,
@@ -14,18 +15,16 @@ import {
   getResponseSettings,
   ensureScreenRecordingPermission,
   SCREEN_RECORDING_HELP,
+  fileToAttachment,
+  attachableFiles,
+  pastedImages,
+  captureFullScreen,
+  resolveAIProvider,
 } from "@/lib";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 
 // Types for completion
-interface AttachedFile {
-  id: string;
-  name: string;
-  type: string;
-  base64: string;
-  size: number;
-}
 
 interface ChatMessage {
   id: string;
@@ -96,49 +95,17 @@ export const useChatCompletion = (
     setState((prev) => ({ ...prev, input: value }));
   }, []);
 
-  const addFile = useCallback(async (file: File) => {
-    try {
-      let base64: string;
-      let type = file.type;
-      let name = file.name;
-
-      const shouldRecompress =
-        screenshotConfiguration?.recompressAttachments &&
-        screenshotConfiguration?.compressionEnabled &&
-        file.type.startsWith("image/");
-
-      if (shouldRecompress) {
-        try {
-          const maxDim = screenshotConfiguration.compressionMaxDimension ?? 1600;
-          const quality = screenshotConfiguration.compressionQuality ?? 75;
-          const { compressImageFile } = await import("@/lib/utils");
-          base64 = await compressImageFile(file, maxDim, quality);
-          type = "image/jpeg";
-          name = name.replace(/\.[^/.]+$/, "") + ".jpg";
-        } catch (e) {
-          console.warn("Recompression failed, falling back to original file:", e);
-          base64 = await fileToBase64(file);
-        }
-      } else {
-        base64 = await fileToBase64(file);
+  const addFile = useCallback(
+    async (file: File) => {
+      try {
+        const attachedFile = await fileToAttachment(file, screenshotConfiguration);
+        setState((prev) => ({ ...prev, attachedFiles: [...prev.attachedFiles, attachedFile] }));
+      } catch (error) {
+        console.error("Failed to process file:", error);
       }
-
-      const attachedFile: AttachedFile = {
-        id: Date.now().toString(),
-        name,
-        type,
-        base64,
-        size: base64.length,
-      };
-
-      setState((prev) => ({
-        ...prev,
-        attachedFiles: [...prev.attachedFiles, attachedFile],
-      }));
-    } catch (error) {
-      console.error("Failed to process file:", error);
-    }
-  }, [screenshotConfiguration]);
+    },
+    [screenshotConfiguration]
+  );
 
   const removeFile = useCallback((fileId: string) => {
     setState((prev) => ({
@@ -198,24 +165,12 @@ export const useChatCompletion = (
           .map(f => f.base64)[0]; // Gemini handles one audio file per turn in this logic
 
         // If we captured a screenshot earlier in this flow, include it as well
-        if (!selectedAIProvider.provider) {
-          setState((prev) => ({
-            ...prev,
-            error: "Please select an AI provider in settings",
-          }));
+        const resolved = resolveAIProvider(selectedAIProvider, allAiProviders);
+        if ("error" in resolved) {
+          setState((prev) => ({ ...prev, error: resolved.error }));
           return;
         }
-
-        const provider = allAiProviders.find(
-          (p) => p.id === selectedAIProvider.provider
-        );
-        if (!provider) {
-          setState((prev) => ({
-            ...prev,
-            error: "Invalid provider selected",
-          }));
-          return;
-        }
+        const { provider } = resolved;
 
         // Add user message to UI immediately
         const timestamp = Date.now();
@@ -395,32 +350,9 @@ export const useChatCompletion = (
     setState((prev) => ({ ...prev, isLoading: false }));
   }, []);
 
-  // Helper function to convert file to base64
-  const fileToBase64 = useCallback(async (file: File): Promise<string> => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.readAsDataURL(file);
-      reader.onload = () => {
-        const base64 = (reader.result as string)?.split(",")[1] || "";
-        resolve(base64);
-      };
-      reader.onerror = reject;
-    });
-  }, []);
-
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || []);
-
-    files.forEach((file) => {
-      if (
-      (file.type.startsWith("image/") || file.type.startsWith("audio/")) &&
-      state.attachedFiles.length < MAX_FILES
-    ) {
-        addFile(file);
-      }
-    });
-
-    // Reset input so same file can be selected again
+    attachableFiles(Array.from(e.target.files || []), state.attachedFiles.length).forEach(addFile);
+    // Reset input so the same file can be selected again
     e.target.value = "";
   };
 
@@ -526,35 +458,8 @@ export const useChatCompletion = (
 
   const handlePaste = useCallback(
     async (e: React.ClipboardEvent) => {
-      // Check if clipboard contains images
-      const items = e.clipboardData?.items;
-      if (!items) return;
-
-      const hasImages = Array.from(items).some((item) =>
-        item.type.startsWith("image/")
-      );
-
-      // If we have images, prevent default text pasting and process images
-      if (hasImages) {
-        e.preventDefault();
-
-        const processedFiles: File[] = [];
-
-        Array.from(items).forEach((item) => {
-          if (
-            item.type.startsWith("image/") &&
-            state.attachedFiles.length + processedFiles.length < MAX_FILES
-          ) {
-            const file = item.getAsFile();
-            if (file) {
-              processedFiles.push(file);
-            }
-          }
-        });
-
-        // Process all files
-        await Promise.all(processedFiles.map((file) => addFile(file)));
-      }
+      const images = pastedImages(e, state.attachedFiles.length);
+      if (images) await Promise.all(images.map(addFile));
     },
     [state.attachedFiles.length, addFile]
   );
@@ -579,11 +484,7 @@ export const useChatCompletion = (
 
       if (config.enabled) {
         const config = screenshotConfigRef.current;
-        const base64 = await invoke("capture_to_base64", {
-          compressionEnabled: config.compressionEnabled ?? true,
-          compressionQuality: config.compressionQuality ?? 75,
-          compressionMaxDimension: config.compressionMaxDimension ?? 1600,
-        });
+        const base64 = await captureFullScreen(config);
 
         if (config.mode === "auto") {
           // Auto mode: Submit directly to AI with the configured prompt

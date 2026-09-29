@@ -3,6 +3,7 @@ import { useWindowResize } from "./useWindow";
 import { useGlobalShortcuts } from "@/hooks";
 import { MAX_FILES, STORAGE_KEYS } from "@/config";
 import { useApp } from "@/contexts";
+import type { AttachedFile } from "@/types";
 import {
   fetchAIResponse,
   appendMessages,
@@ -22,18 +23,16 @@ import {
   base64ToText,
   ensureScreenRecordingPermission,
   SCREEN_RECORDING_HELP,
+  fileToAttachment,
+  attachableFiles,
+  pastedImages,
+  captureFullScreen,
+  resolveAIProvider,
 } from "@/lib";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 
 // Types for completion
-interface AttachedFile {
-  id: string;
-  name: string;
-  type: string;
-  base64: string;
-  size: number;
-}
 
 interface ChatMessage {
   id: string;
@@ -146,50 +145,17 @@ export const useCompletion = () => {
     setState((prev) => ({ ...prev, response: value }));
   }, []);
 
-  const addFile = useCallback(async (file: File) => {
-    try {
-      let base64: string;
-      let type = file.type;
-      let name = file.name;
-
-      const shouldRecompress =
-        screenshotConfiguration?.recompressAttachments &&
-        screenshotConfiguration?.compressionEnabled &&
-        file.type.startsWith("image/");
-
-      if (shouldRecompress) {
-        try {
-          const maxDim = screenshotConfiguration.compressionMaxDimension ?? 1600;
-          const quality = screenshotConfiguration.compressionQuality ?? 75;
-          // dynamic import to keep bundle small
-          const { compressImageFile } = await import("@/lib/utils");
-          base64 = await compressImageFile(file, maxDim, quality);
-          type = "image/jpeg";
-          name = name.replace(/\.[^/.]+$/, "") + ".jpg";
-        } catch (e) {
-          console.warn("Recompression failed, falling back to original file:", e);
-          base64 = await fileToBase64(file);
-        }
-      } else {
-        base64 = await fileToBase64(file);
+  const addFile = useCallback(
+    async (file: File) => {
+      try {
+        const attachedFile = await fileToAttachment(file, screenshotConfiguration);
+        setState((prev) => ({ ...prev, attachedFiles: [...prev.attachedFiles, attachedFile] }));
+      } catch (error) {
+        console.error("Failed to process file:", error);
       }
-
-      const attachedFile: AttachedFile = {
-        id: Date.now().toString(),
-        name,
-        type,
-        base64,
-        size: base64.length,
-      };
-
-      setState((prev) => ({
-        ...prev,
-        attachedFiles: [...prev.attachedFiles, attachedFile],
-      }));
-    } catch (error) {
-      console.error("Failed to process file:", error);
-    }
-  }, [screenshotConfiguration]);
+    },
+    [screenshotConfiguration]
+  );
 
   const removeFile = useCallback((fileId: string) => {
     setState((prev) => ({
@@ -353,24 +319,12 @@ export const useCompletion = () => {
 
       try {
         const messageHistory = buildRequestHistory(messageForRequest);
-        if (!selectedAIProvider.provider) {
-          setState((prev) => ({
-            ...prev,
-            error: "Please select an AI provider in settings",
-          }));
+        const resolved = resolveAIProvider(selectedAIProvider, allAiProviders);
+        if ("error" in resolved) {
+          setState((prev) => ({ ...prev, error: resolved.error }));
           return;
         }
-
-        const provider = allAiProviders.find(
-          (p) => p.id === selectedAIProvider.provider
-        );
-        if (!provider) {
-          setState((prev) => ({
-            ...prev,
-            error: "Invalid provider selected",
-          }));
-          return;
-        }
+        const { provider } = resolved;
 
         // Set loading state and clear previous response
         setState((prev) => ({
@@ -484,19 +438,6 @@ export const useCompletion = () => {
       attachedFiles: [],
     }));
   }, [cancel, keepEngaged]);
-
-  // Helper function to convert file to base64
-  const fileToBase64 = useCallback(async (file: File): Promise<string> => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.readAsDataURL(file);
-      reader.onload = () => {
-        const base64 = (reader.result as string)?.split(",")[1] || "";
-        resolve(base64);
-      };
-      reader.onerror = reject;
-    });
-  }, []);
 
   // Note: saveConversation, getConversationById, and generateConversationTitle
   // are now imported from lib/database/chat-history.action.ts
@@ -625,19 +566,8 @@ export const useCompletion = () => {
   }, [loadConversation, startNewConversation, state.currentConversationId]);
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || []);
-    const MAX_FILES = 6;
-
-    files.forEach((file) => {
-      if (
-        (file.type.startsWith("image/") || file.type.startsWith("audio/")) &&
-        state.attachedFiles.length < MAX_FILES
-      ) {
-        addFile(file);
-      }
-    });
-
-    // Reset input so same file can be selected again
+    attachableFiles(Array.from(e.target.files || []), state.attachedFiles.length).forEach(addFile);
+    // Reset input so the same file can be selected again
     e.target.value = "";
   };
 
@@ -698,24 +628,12 @@ export const useCompletion = () => {
             const messageHistory = buildRequestHistory(promptForRequest);
 
             let fullResponse = "";
-            if (!selectedAIProvider.provider) {
-              setState((prev) => ({
-                ...prev,
-                error: "Please select an AI provider in settings",
-              }));
+            const resolved = resolveAIProvider(selectedAIProvider, allAiProviders);
+            if ("error" in resolved) {
+              setState((prev) => ({ ...prev, error: resolved.error }));
               return;
             }
-
-            const provider = allAiProviders.find(
-              (p) => p.id === selectedAIProvider.provider
-            );
-            if (!provider) {
-              setState((prev) => ({
-                ...prev,
-                error: "Invalid provider selected",
-              }));
-              return;
-            }
+            const { provider } = resolved;
 
             // Clear previous response and set loading state
             setState((prev) => ({
@@ -854,35 +772,8 @@ export const useCompletion = () => {
 
   const handlePaste = useCallback(
     async (e: React.ClipboardEvent) => {
-      // Check if clipboard contains images
-      const items = e.clipboardData?.items;
-      if (!items) return;
-
-      const hasImages = Array.from(items).some((item) =>
-        item.type.startsWith("image/")
-      );
-
-      // If we have images, prevent default text pasting and process images
-      if (hasImages) {
-        e.preventDefault();
-
-        const processedFiles: File[] = [];
-
-        Array.from(items).forEach((item) => {
-          if (
-            item.type.startsWith("image/") &&
-            state.attachedFiles.length + processedFiles.length < MAX_FILES
-          ) {
-            const file = item.getAsFile();
-            if (file) {
-              processedFiles.push(file);
-            }
-          }
-        });
-
-        // Process all files
-        await Promise.all(processedFiles.map((file) => addFile(file)));
-      }
+      const images = pastedImages(e, state.attachedFiles.length);
+      if (images) await Promise.all(images.map(addFile));
     },
     [state.attachedFiles.length, addFile]
   );
@@ -1008,11 +899,7 @@ export const useCompletion = () => {
       }
 
       if (config.enabled) {
-        const base64 = await invoke("capture_to_base64", {
-          compressionEnabled: config.compressionEnabled ?? true,
-          compressionQuality: config.compressionQuality ?? 75,
-          compressionMaxDimension: config.compressionMaxDimension ?? 1600,
-        });
+        const base64 = await captureFullScreen(config);
 
         const audio = await captureShortcutAudio();
 
