@@ -5,8 +5,10 @@ import {
   Loader2,
   MessageSquarePlusIcon,
   MessagesSquareIcon,
+  PinIcon,
   XIcon,
 } from "lucide-react";
+import { invoke } from "@tauri-apps/api/core";
 import {
   Popover,
   PopoverContent,
@@ -19,7 +21,7 @@ import {
 } from "@/components";
 import { UseCompletionReturn } from "@/types";
 import { QUICK_ACTIONS } from "@/config";
-import { lastCodeBlock, splitFollowUps } from "@/lib";
+import { lastCodeBlock, splitFollowUps, usePinnedFacts } from "@/lib";
 import { useAnswerPager } from "./useAnswerPager";
 
 const MOD = navigator.platform.toLowerCase().includes("mac") ? "⌘" : "Ctrl+";
@@ -53,8 +55,11 @@ export const Input = ({
   runQuickAction,
   askFollowUp,
   copyLastCode,
+  pinNotice,
 }: UseCompletionReturn & { isHidden: boolean }) => {
   const { answer, followUps } = splitFollowUps(response);
+  const pinned = usePinnedFacts();
+  const showMessageCount = Boolean(currentConversationId) && conversationHistory.length > 0 && !isLoading;
   const pager = useAnswerPager({
     history: conversationHistory,
     response: answer,
@@ -101,33 +106,48 @@ export const Input = ({
           <div className="relative select-none">
             <InputComponent
               ref={inputRef}
-              placeholder="Ask me anything..."
+              placeholder={pinNotice ?? "Ask anything, or /pin a fact to remember"}
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyPress={handleKeyPress}
               onPaste={handlePaste}
               disabled={isLoading || isHidden}
-              className={`${
-                currentConversationId && conversationHistory.length > 0
+              className={`${pinNotice ? "placeholder:text-primary" : ""} ${
+                showMessageCount && pinned.length > 0
+                  ? "pr-24"
+                  : showMessageCount || pinned.length > 0
                   ? "pr-12"
                   : "pr-2"
               }`}
             />
 
-            {/* In a conversation: message count; click to see it (conversation mode) */}
-            {currentConversationId &&
-              conversationHistory.length > 0 &&
-              !isLoading && (
-                <button
-                  type="button"
-                  onClick={() => setKeepEngaged(true)}
-                  title={`${conversationHistory.length} messages in this conversation. Click to view (${MOD}K)`}
-                  className="absolute right-1.5 top-1/2 -translate-y-1/2 flex items-center gap-1 rounded-md border border-input/50 px-1.5 py-0.5 text-[11px] text-muted-foreground hover:bg-muted/50 cursor-pointer"
-                >
-                  <MessagesSquareIcon className="size-3.5" />
-                  {conversationHistory.length}
-                </button>
-              )}
+            {(showMessageCount || (pinned.length > 0 && !isLoading)) && (
+              <div className="absolute right-1.5 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                {pinned.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => invoke("open_dashboard").catch(() => {})}
+                    title={`Pinned for this meeting:\n${pinned.map((f) => `• ${f.text}`).join("\n")}\n\nClick to manage on the Meeting page. Type "/unpin all" to clear.`}
+                    className="flex items-center gap-1 rounded-md border border-input/50 px-1.5 py-0.5 text-[11px] text-muted-foreground hover:bg-muted/50 cursor-pointer"
+                  >
+                    <PinIcon className="size-3.5" />
+                    {pinned.length}
+                  </button>
+                )}
+                {/* In a conversation: message count; click to see it (conversation mode) */}
+                {showMessageCount && (
+                  <button
+                    type="button"
+                    onClick={() => setKeepEngaged(true)}
+                    title={`${conversationHistory.length} messages in this conversation. Click to view (${MOD}K)`}
+                    className="flex items-center gap-1 rounded-md border border-input/50 px-1.5 py-0.5 text-[11px] text-muted-foreground hover:bg-muted/50 cursor-pointer"
+                  >
+                    <MessagesSquareIcon className="size-3.5" />
+                    {conversationHistory.length}
+                  </button>
+                )}
+              </div>
+            )}
 
             {/* Loading indicator */}
             {isLoading && (

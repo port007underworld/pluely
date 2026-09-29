@@ -15,6 +15,7 @@ import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import curl2Json from "@bany/curl-to-json";
 import {
   buildPersonalContextBlock,
+  buildPinnedFactsBlock,
   getResponseSettings,
   RESPONSE_LENGTHS,
   LANGUAGES,
@@ -96,8 +97,11 @@ function buildEnhancedSystemPrompt(baseSystemPrompt?: string): string {
   // Add markdown formatting instructions
   prompts.push(MARKDOWN_FORMATTING_INSTRUCTIONS);
 
-  const personalContext = buildPersonalContextBlock();
-  return personalContext ? `${prompts.join(" ")}\n\n${personalContext}` : prompts.join(" ");
+  // Pinned facts go last: they change during a meeting, and keeping everything
+  // before them identical preserves the prefix that providers cache.
+  return [prompts.join(" "), buildPersonalContextBlock(), buildPinnedFactsBlock()]
+    .filter(Boolean)
+    .join("\n\n");
 }
 
 export interface AIRequestParams {

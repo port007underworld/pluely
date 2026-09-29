@@ -28,6 +28,8 @@ import {
   pastedImages,
   captureFullScreen,
   createQuestionDetector,
+  pinFact,
+  clearPinnedFacts,
   splitFollowUps,
   FOLLOW_UP_INSTRUCTIONS,
   lastCodeBlock,
@@ -139,6 +141,7 @@ export const useCompletion = () => {
   const [keepEngaged, setKeepEngaged] = useState(false);
   const [audioNotice, setAudioNotice] = useState<string | null>(null);
   const [idleResetNotice, setIdleResetNotice] = useState<string | null>(null);
+  const [pinNotice, setPinNotice] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const isProcessingScreenshotRef = useRef(false);
   const screenshotConfigRef = useRef(screenshotConfiguration);
@@ -301,6 +304,23 @@ export const useCompletion = () => {
       const input = speechText || state.input;
 
       if (!input.trim()) {
+        return;
+      }
+
+      // "/pin <fact>" remembers a fact for the rest of the meeting.
+      if (/^\/unpin\s+all\s*$/i.test(input.trim()) && !speechText) {
+        clearPinnedFacts();
+        setState((prev) => ({ ...prev, input: "" }));
+        setPinNotice("Cleared all pinned facts.");
+        setTimeout(() => setPinNotice(null), 3000);
+        return;
+      }
+      const pin = input.trim().match(/^\/pin\s+([\s\S]+)/i);
+      if (pin && !speechText) {
+        const added = pinFact(pin[1]);
+        setState((prev) => ({ ...prev, input: "" }));
+        setPinNotice(added ? `Pinned: ${pin[1].trim()}` : "Already pinned, or the list is full.");
+        setTimeout(() => setPinNotice(null), 3000);
         return;
       }
 
@@ -1247,6 +1267,7 @@ export const useCompletion = () => {
     isLoading: state.isLoading,
     audioNotice,
     idleResetNotice,
+    pinNotice,
     actionNotice,
     runQuickAction,
     askFollowUp,

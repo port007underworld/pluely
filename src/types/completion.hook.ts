@@ -131,6 +131,8 @@ export interface UseCompletionReturn {
   captureScreenshot: () => Promise<void>;
   /** Whether a screenshot is currently loading */
   isScreenshotLoading: boolean;
+  /** Confirmation after "/pin <fact>", shown briefly under the input. */
+  pinNotice: string | null;
   /** Short-lived confirmation from a quick action or copy (e.g. "Code copied"). */
   actionNotice: string | null;
   /** Rework the last answer (see QUICK_ACTIONS). */

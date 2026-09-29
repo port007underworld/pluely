@@ -21,6 +21,7 @@ export const STORAGE_KEYS = {
   SELECTED_PROMPT_PRESET: "selected_prompt_preset",
   PERSONAL_CONTEXT: "personal_context",
   PROFILES: "profiles",
+  PINNED_FACTS: "pinned_facts",
 } as const;
 
 // Max number of files that can be attached to a message
