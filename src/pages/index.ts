@@ -10,3 +10,4 @@ export { default as Responses } from "./responses";
 export { default as MyContext } from "./context";
 export { default as Meeting } from "./meeting";
 export { default as Welcome } from "./welcome";
+export { default as Profiles } from "./profiles";

@@ -9,6 +9,7 @@ import {
   PowerIcon,
   MessageSquareTextIcon,
   UserRoundIcon,
+  LayersIcon,
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 
@@ -39,6 +40,11 @@ export const useMenuItems = () => {
       icon: UserRoundIcon,
       label: "My Context",
       href: "/context",
+    },
+    {
+      icon: LayersIcon,
+      label: "Profiles",
+      href: "/profiles",
     },
     {
       icon: Settings,
