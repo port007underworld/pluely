@@ -73,7 +73,8 @@ function newestApp(dir, found = []) {
 }
 
 function reportSignature() {
-  const apps = newestApp(join(root, "src-tauri/target")).sort(
+  const targetDir = env.CARGO_TARGET_DIR || join(root, "src-tauri/target");
+  const apps = newestApp(targetDir).sort(
     (a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs
   );
   if (apps.length === 0) return;

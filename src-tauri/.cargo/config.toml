@@ -1,0 +1,4 @@
+[env]
+# CMake 4 rejects projects declaring cmake_minimum_required < 3.5, such as the
+# Opus sources bundled by audiopus_sys (built from source when cross-compiling).
+CMAKE_POLICY_VERSION_MINIMUM = "3.5"
