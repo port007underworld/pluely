@@ -8,8 +8,10 @@ import {
 } from "@/lib";
 import { cn } from "@/lib/utils";
 
-/** Talking more than this share of the time turns the bar amber. */
+/** Talking more than this share of the time turns the bar amber… */
 const HIGH_SHARE = 0.6;
+/** …once there's been enough conversation for the share to mean something. */
+const MIN_TALK_FOR_SHARE_MS = 60_000;
 
 /**
  * A thin bar along the bottom of the overlay showing your share of the talking,
@@ -26,7 +28,8 @@ export const TalkTimeBar = () => {
   const summary = summarizeTalk(stats);
   if (summary.youShare === null) return null;
   const longStretch = summary.currentMonologueMs > LONG_MONOLOGUE_MS;
-  const warn = summary.youShare > HIGH_SHARE || longStretch;
+  const enoughTalk = summary.youMs + summary.othersMs >= MIN_TALK_FOR_SHARE_MS;
+  const warn = (enoughTalk && summary.youShare > HIGH_SHARE) || longStretch;
   const title = [
     `You've talked ${Math.round(summary.youShare * 100)}% of the time (${formatDuration(summary.youMs)} vs ${formatDuration(summary.othersMs)}).`,
     summary.wordsPerMinute ? `Pace: ${summary.wordsPerMinute} words a minute.` : "",

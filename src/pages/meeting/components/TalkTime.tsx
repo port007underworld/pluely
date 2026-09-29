@@ -34,7 +34,7 @@ export const TalkTime = () => {
     <div id="talk-time" className="space-y-3">
       <Header
         title="Talk Time"
-        description="How much you've talked compared with everyone else, how fast, and for how long at a stretch. Needs “Also capture my microphone”, since your share comes from your own mic. A thin bar under the overlay shows your share during the meeting."
+        description="How much you've talked compared with everyone else, how fast, and for how long at a stretch. Needs “Also capture my microphone”, since your share comes from your own mic. A thin bar under the overlay shows your share during the meeting. Headphones give the most accurate numbers: without them your mic also hears the other side, and although that echo is filtered out, some can slip through."
         isMainTitle
       />
       {!config.captureMic ? (

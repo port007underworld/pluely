@@ -389,13 +389,16 @@ pub(crate) fn run_whisper(
         .full(params, samples)
         .map_err(|e| format!("Transcription failed: {}", e))?;
 
+    // The mic picks up typing and bumps more than meeting audio does, so it
+    // needs more confidence that there's speech at all.
+    let max_no_speech = if source == "mic" { 0.45 } else { 0.6 };
     // Timestamps are in centiseconds from the start of the buffer.
     Ok(whisper_state
         .as_iter()
-        .filter(|segment| segment.no_speech_probability() < 0.6)
+        .filter(|segment| segment.no_speech_probability() < max_no_speech)
         .filter_map(|segment| {
             let text = segment.to_str_lossy().ok()?.trim().to_string();
-            if text.is_empty() {
+            if text.is_empty() || is_hallucination(&text) {
                 return None;
             }
             Some(TranscriptSegment {
@@ -421,6 +424,20 @@ fn words(text: &str) -> std::collections::HashSet<String> {
         .collect()
 }
 
+/// Whether a mic line is the speakers heard through the mic (no headphones):
+/// most of its words were also said on the system side. Echo is often
+/// transcribed partially, so this compares against the shorter of the two.
+pub(crate) fn looks_like_echo(mic_text: &str, system_text: &str) -> bool {
+    let mw = words(mic_text);
+    if mw.is_empty() {
+        return true;
+    }
+    let sw = words(system_text);
+    let shared = mw.intersection(&sw).count();
+    let smaller = mw.len().min(sw.len()).max(1);
+    shared >= 1 && shared as f32 / smaller as f32 >= 0.5
+}
+
 /// Without headphones the mic hears the speakers, so "You" would repeat what
 /// "Them" said. Drop mic segments that overlap in time and mostly share words.
 pub(crate) fn remove_echo(
@@ -428,26 +445,50 @@ pub(crate) fn remove_echo(
     system: &[TranscriptSegment],
 ) -> Vec<TranscriptSegment> {
     const SLACK_SECONDS: f32 = 1.5;
-    const SIMILARITY: f32 = 0.5;
     mic.into_iter()
         .filter(|m| {
-            let mw = words(&m.text);
-            if mw.is_empty() {
-                return false;
-            }
             !system.iter().any(|s| {
-                let overlaps = m.start_offset <= s.end_offset + SLACK_SECONDS
-                    && s.start_offset <= m.end_offset + SLACK_SECONDS;
-                if !overlaps {
-                    return false;
-                }
-                let sw = words(&s.text);
-                let shared = mw.intersection(&sw).count() as f32;
-                let union = mw.union(&sw).count().max(1) as f32;
-                shared / union >= SIMILARITY
-            })
+                m.start_offset <= s.end_offset + SLACK_SECONDS
+                    && s.start_offset <= m.end_offset + SLACK_SECONDS
+                    && looks_like_echo(&m.text, &s.text)
+            }) && !words(&m.text).is_empty()
         })
         .collect()
+}
+
+/// Text Whisper produces from noise or silence rather than speech: bracketed
+/// sound tags ("[Music]", "(keyboard clicking)"), music notes, and a few
+/// phrases it's known to invent.
+pub(crate) fn is_hallucination(text: &str) -> bool {
+    let trimmed = text.trim();
+    let tag_only = trimmed
+        .split(|c| matches!(c, '[' | ']' | '(' | ')' | '*' | '♪' | '♫'))
+        .enumerate()
+        .all(|(i, part)| i % 2 == 1 || part.trim().chars().all(|c| !c.is_alphanumeric()));
+    if tag_only || !trimmed.chars().any(|c| c.is_alphanumeric()) {
+        return true;
+    }
+    let normalized: String = trimmed
+        .to_lowercase()
+        .chars()
+        .filter(|c| c.is_alphanumeric() || c.is_whitespace())
+        .collect::<String>()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    matches!(
+        normalized.as_str(),
+        "you"
+            | "thank you"
+            | "thank you very much"
+            | "thanks for watching"
+            | "thank you for watching"
+            | "thanks for watching and see you next time"
+            | "please subscribe"
+            | "subscribe"
+            | "bye"
+            | "bye bye"
+    )
 }
 
 /// Transcribe the last `seconds` of system audio (and the mic, when it is being
@@ -547,6 +588,25 @@ pub async fn system_audio_silence_ratio(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn whisper_noise_phrases_are_dropped() {
+        for noise in ["[Music]", "(keyboard clicking)", "♪ ♪", "*sigh*", " Thank you. ", "you", "Thanks for watching!", "..."] {
+            assert!(is_hallucination(noise), "{noise}");
+        }
+        for speech in ["Thank you for the demo, that was helpful.", "Hello (laughs) nice to meet you", "Okay.", "Yes"] {
+            assert!(!is_hallucination(speech), "{speech}");
+        }
+    }
+
+    #[test]
+    fn echo_is_matched_on_the_shorter_line() {
+        // A partial echo of what the other side said.
+        assert!(looks_like_echo("how would your system behave", "How would your system behave if an entire region went down?"));
+        // The user answering something different at the same time.
+        assert!(!looks_like_echo("we fail over to the next region in seconds", "How would your system behave if a region went down?"));
+        assert!(looks_like_echo("...", "anything"));
+    }
+
     use super::*;
     use crate::system_audio::encode_wav_pcm16;
 

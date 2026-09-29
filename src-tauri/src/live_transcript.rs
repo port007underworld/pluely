@@ -4,7 +4,7 @@
 //! reads the stored transcript plus the utterance still in progress.
 
 use crate::local_stt::{
-    context_for, remove_echo, run_whisper, spec, LocalSttState, TranscriptResult,
+    context_for, looks_like_echo, remove_echo, run_whisper, spec, LocalSttState, TranscriptResult,
     TranscriptSegment,
 };
 use crate::mic_audio::MicAudioState;
@@ -36,6 +36,21 @@ const LEAD_IN: usize = SAMPLE_RATE * 3 / 10;
 const MAX_UTTERANCE: usize = SAMPLE_RATE * 10;
 /// Utterances with less speech than this are clicks/noise.
 const MIN_SPEECH: usize = SAMPLE_RATE * 3 / 10;
+/// The mic hears typing and desk bumps, so it needs more speech to count.
+const MIN_MIC_SPEECH: usize = SAMPLE_RATE / 2;
+/// How long a mic line waits for the matching meeting-audio line, so echo of
+/// the speakers (no headphones) can be recognised before it's shown.
+const ECHO_HOLD_MS: u64 = 1_500;
+/// A mic line within this long of a meeting-audio line can be its echo.
+const ECHO_SLACK_MS: u64 = 1_500;
+
+fn min_speech(source: &str) -> usize {
+    if source == "mic" {
+        MIN_MIC_SPEECH
+    } else {
+        MIN_SPEECH
+    }
+}
 /// How often the utterance still being spoken is re-transcribed for the preview.
 const PARTIAL_EVERY: usize = SAMPLE_RATE;
 /// How long transcript lines are kept.
@@ -121,7 +136,7 @@ impl Track {
             if self.trailing_silence >= END_SILENCE || self.scanned >= MAX_UTTERANCE {
                 let samples: Vec<f32> = self.pending.drain(..self.scanned).collect();
                 let unread_after = self.pending.len();
-                if self.speech_samples >= MIN_SPEECH {
+                if self.speech_samples >= min_speech(source) {
                     chunks.push(Chunk {
                         source,
                         samples,
@@ -162,7 +177,7 @@ impl Track {
 
     /// The utterance still being spoken, if any (not consumed).
     fn in_progress(&self, source: &'static str) -> Option<Chunk> {
-        if !self.in_speech || self.speech_samples < MIN_SPEECH {
+        if !self.in_speech || self.speech_samples < min_speech(source) {
             return None;
         }
         Some(Chunk {
@@ -205,6 +220,8 @@ pub struct LiveTranscriber {
     system: Mutex<Track>,
     mic: Mutex<Track>,
     segments: Mutex<VecDeque<LiveSegment>>,
+    /// Mic lines waiting for the echo check, with when to release them.
+    held_mic: Mutex<Vec<(LiveSegment, u64)>>,
     speakers: Mutex<SpeakerClusters>,
     extractor: Mutex<Option<Extractor>>,
     last_error: Mutex<Option<String>>,
@@ -320,7 +337,61 @@ impl Deps {
             .collect())
     }
 
+    /// Store new lines. Mic lines are held briefly and dropped if they turn
+    /// out to be the meeting audio heard through the mic.
     fn store(&self, new: Vec<LiveSegment>) {
+        let (mic, system): (Vec<_>, Vec<_>) = new.into_iter().partition(|s| s.source == "mic");
+        self.commit(system);
+        if !mic.is_empty() {
+            let release_at = now_ms() + ECHO_HOLD_MS;
+            if let Ok(mut held) = self.live.held_mic.lock() {
+                held.extend(mic.into_iter().map(|s| (s, release_at)));
+            }
+        }
+        self.release_mic(false);
+    }
+
+    /// Drop held mic lines that echo a meeting-audio line; commit the ones
+    /// whose hold has passed (or all of them, with `all`).
+    fn release_mic(&self, all: bool) {
+        let held = match self.live.held_mic.lock() {
+            Ok(mut held) => std::mem::take(&mut *held),
+            Err(_) => return,
+        };
+        if held.is_empty() {
+            return;
+        }
+        let system: Vec<LiveSegment> = self
+            .live
+            .segments
+            .lock()
+            .map(|s| s.iter().filter(|s| s.source == "system").cloned().collect())
+            .unwrap_or_default();
+        let now = now_ms();
+        let mut ready = Vec::new();
+        let mut keep = Vec::new();
+        for (segment, release_at) in held {
+            let echo = system.iter().any(|s| {
+                segment.start_ms <= s.end_ms + ECHO_SLACK_MS
+                    && s.start_ms <= segment.end_ms + ECHO_SLACK_MS
+                    && looks_like_echo(&segment.text, &s.text)
+            });
+            if echo {
+                continue;
+            }
+            if all || now >= release_at {
+                ready.push(segment);
+            } else {
+                keep.push((segment, release_at));
+            }
+        }
+        if let Ok(mut held) = self.live.held_mic.lock() {
+            held.extend(keep);
+        }
+        self.commit(ready);
+    }
+
+    fn commit(&self, new: Vec<LiveSegment>) {
         if new.is_empty() {
             return;
         }
@@ -375,7 +446,10 @@ impl Deps {
         if let Ok(mut track) = self.live.system.lock() {
             partials.extend(track.take_partial("system"));
         }
-        if self.mic.buffer.is_recording() {
+        // While meeting audio is playing, words on the mic are mostly echo of it;
+        // skip the mic preview then (finished lines still get the echo check).
+        let others_speaking = self.live.system.lock().map(|t| t.in_speech).unwrap_or(false);
+        if self.mic.buffer.is_recording() && !others_speaking {
             if let Ok(mut track) = self.live.mic.lock() {
                 partials.extend(track.take_partial("mic"));
             }
@@ -418,6 +492,7 @@ fn worker_loop(deps: Deps) {
         let started = Instant::now();
         let chunks = deps.pump_all();
         deps.process(chunks);
+        deps.release_mic(false);
         deps.emit_partials();
         if let Some(rest) = POLL.checked_sub(started.elapsed()) {
             thread::sleep(rest);
@@ -494,6 +569,7 @@ pub async fn live_transcript_stop(
     *live.system.lock().map_err(|e| e.to_string())? = Track::default();
     *live.mic.lock().map_err(|e| e.to_string())? = Track::default();
     live.segments.lock().map_err(|e| e.to_string())?.clear();
+    live.held_mic.lock().map_err(|e| e.to_string())?.clear();
     // A new session is a new meeting: forget the voices.
     live.speakers.lock().map_err(|e| e.to_string())?.reset();
     if was_running {
@@ -671,6 +747,7 @@ pub async fn live_transcript_get(
         let mut provisional = Vec::new();
         if finalize {
             deps.process(deps.pump_all());
+            deps.release_mic(true);
             let in_progress = [
                 deps.live.system.lock().ok().and_then(|t| t.in_progress("system")),
                 deps.live.mic.lock().ok().and_then(|t| t.in_progress("mic")),
