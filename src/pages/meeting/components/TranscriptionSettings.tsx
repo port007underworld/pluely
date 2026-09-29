@@ -603,8 +603,8 @@ export const TranscriptionSettings = () => {
                     <p className="text-xs text-muted-foreground">
                       When someone else in the meeting asks a question, Runningbord answers it
                       in the overlay without a shortcut press. Only their audio is used, and it
-                      waits for them to finish speaking. At most one answer every 20 seconds;
-                      each one is a normal AI request.
+                      waits for them to finish speaking. A question asked while an answer is still
+                      being written is answered right after it. Each answer is a normal AI request.
                     </p>
                   </div>
                   <Switch

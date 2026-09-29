@@ -19,8 +19,8 @@ export interface QuestionDetectorOptions {
   onQuestion: (question: string) => void;
   /** Silence after the question before answering, so follow-on clauses are included. */
   pauseMs?: number;
-  /** Minimum time between automatic answers. */
-  cooldownMs?: number;
+  /** Safety cap against noisy audio: most answers in any 60 seconds. */
+  maxPerMinute?: number;
 }
 
 /**
@@ -31,24 +31,25 @@ export interface QuestionDetectorOptions {
 export function createQuestionDetector({
   onQuestion,
   pauseMs = 1800,
-  cooldownMs = 20_000,
+  maxPerMinute = 6,
 }: QuestionDetectorOptions) {
   let pending: string[] = [];
   let timer: ReturnType<typeof setTimeout> | undefined;
-  let lastFired = 0;
+  let fired: number[] = [];
 
   const fire = () => {
     timer = undefined;
-    // Too soon after the last answer: hold the question until the cooldown ends.
-    const wait = lastFired + cooldownMs - Date.now();
-    if (wait > 0) {
-      timer = setTimeout(fire, wait);
+    // Over the cap: hold the question until the oldest answer is a minute old.
+    const now = Date.now();
+    fired = fired.filter((t) => now - t < 60_000);
+    if (fired.length >= maxPerMinute) {
+      timer = setTimeout(fire, fired[0] + 60_000 - now);
       return;
     }
     const question = pending.join(" ").trim();
     pending = [];
     if (!question) return;
-    lastFired = Date.now();
+    fired.push(now);
     onQuestion(question);
   };
 

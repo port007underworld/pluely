@@ -947,12 +947,32 @@ export const useCompletion = () => {
   const latestStateRef = useRef(state);
   latestStateRef.current = state;
 
+  // A question asked while an answer is still being written waits for it; only
+  // the newest one is kept, since a follow-up usually supersedes the one before.
+  const queuedQuestionRef = useRef<string | null>(null);
+  const autoAnsweringRef = useRef(false);
+
   const autoAnswerRef = useRef<(question: string) => Promise<void>>(async () => {});
   autoAnswerRef.current = async (question: string) => {
     const current = latestStateRef.current;
-    // Never interrupt an answer in progress or overwrite something being typed.
-    if (current.isLoading || current.input.trim() || isScreenshotLoading) return;
+    // Don't overwrite something the user is typing.
+    if (current.input.trim() && !current.isLoading) return;
+    if (current.isLoading || isScreenshotLoading || autoAnsweringRef.current) {
+      queuedQuestionRef.current = question;
+      return;
+    }
+    autoAnsweringRef.current = true;
+    try {
+      await answerQuestion(question);
+    } finally {
+      autoAnsweringRef.current = false;
+    }
+    const next = queuedQuestionRef.current;
+    queuedQuestionRef.current = null;
+    if (next) void autoAnswerRef.current(next);
+  };
 
+  const answerQuestion = async (question: string) => {
     const audio = await captureShortcutAudio();
     let screenshot: string | undefined;
     if (transcriptionConfig.autoAnswerScreenshot && (await ensureScreenRecordingPermission())) {
@@ -974,7 +994,7 @@ export const useCompletion = () => {
           },
         ]
       : [];
-    await sendDirect({
+    return sendDirect({
       displayPrompt: `Auto-answer: ${question}`,
       userMessage: audio?.transcript?.trim() ? `${prompt}\n\n${audio.transcript}` : prompt,
       imagesBase64: screenshot ? [screenshot] : undefined,
@@ -982,6 +1002,13 @@ export const useCompletion = () => {
       files,
     });
   };
+
+  useEffect(() => {
+    if (state.isLoading || autoAnsweringRef.current || !queuedQuestionRef.current) return;
+    const next = queuedQuestionRef.current;
+    queuedQuestionRef.current = null;
+    void autoAnswerRef.current(next);
+  }, [state.isLoading]);
 
   useEffect(() => {
     if (!autoAnswerEnabled) return;
@@ -1004,6 +1031,7 @@ export const useCompletion = () => {
     });
     return () => {
       cancelled = true;
+      queuedQuestionRef.current = null;
       detector.dispose();
       unlisteners.forEach((fn) => fn());
     };
