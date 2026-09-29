@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - master
+  workflow_dispatch: # "Run workflow" button on the Actions tab
 
 jobs:
   publish-tauri:
