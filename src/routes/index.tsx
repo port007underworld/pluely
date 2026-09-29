@@ -11,6 +11,7 @@ import {
   Responses,
   MyContext,
   Meeting,
+  Welcome,
 } from "@/pages";
 import { DashboardLayout } from "@/layouts";
 
@@ -19,6 +20,7 @@ export default function AppRoutes() {
     <Router>
       <Routes>
         <Route path="/" element={<App />} />
+        <Route path="/welcome" element={<Welcome />} />
         <Route element={<DashboardLayout />}>
           <Route path="/dashboard" element={<Navigate to="/dev-space" replace />} />
           <Route path="/chats" element={<Chats />} />

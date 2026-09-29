@@ -5,6 +5,7 @@ import {
   Permissions,
   Updates,
   ChatHistory,
+  SetupGuide,
 } from "./components";
 import { PageLayout } from "@/layouts";
 
@@ -25,6 +26,8 @@ const Settings = () => {
       <ChatHistory />
 
       <Updates />
+
+      <SetupGuide />
     </PageLayout>
   );
 };

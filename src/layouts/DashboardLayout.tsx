@@ -1,9 +1,22 @@
 import { Sidebar } from "@/components";
-import { Outlet } from "react-router-dom";
+import { Navigate, Outlet } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
+import { needsOnboarding } from "@/lib";
 import { ErrorBoundary } from "react-error-boundary";
 import { ErrorLayout } from "./ErrorLayout";
 
 export const DashboardLayout = () => {
+  // Checked once per window load, so finishing or skipping setup sticks.
+  const [onboarding] = useState(needsOnboarding);
+
+  useEffect(() => {
+    // The dashboard starts hidden; bring it up so new users see setup.
+    if (onboarding) invoke("open_dashboard").catch(() => {});
+  }, [onboarding]);
+
+  if (onboarding) return <Navigate to="/welcome" replace />;
+
   return (
     <ErrorBoundary
       fallbackRender={() => {

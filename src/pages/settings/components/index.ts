@@ -4,3 +4,4 @@ export * from "./Theme";
 export * from "./Permissions";
 export * from "./Updates";
 export * from "./ChatHistory";
+export * from "./SetupGuide";

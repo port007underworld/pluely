@@ -87,7 +87,7 @@ export const Providers = ({
               )?.isCustom
                 ? "Custom Provider"
                 : selectedAIProvider?.provider
-            } API key to authenticate and access AI models. Your key is stored locally and never shared.`}
+            } API key to authenticate and access AI models. Your key is kept in the system keychain and only sent to this provider.`}
           />
 
           <div className="space-y-2">

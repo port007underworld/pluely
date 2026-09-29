@@ -85,7 +85,7 @@ export const Providers = ({
               )?.isCustom
                 ? "Custom Provider"
                 : selectedSttProvider?.provider
-            } API key to authenticate and access STT models. Your key is stored locally and never shared.`}
+            } API key to authenticate and access STT models. Your key is kept in the system keychain and only sent to this provider.`}
           />
 
           <div className="space-y-2">
