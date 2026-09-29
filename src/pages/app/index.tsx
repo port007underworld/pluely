@@ -2,16 +2,33 @@ import { Card, DragButton, CustomCursor, Button } from "@/components";
 import { Completion } from "./components";
 import { useApp } from "@/hooks";
 import { useApp as useAppContext } from "@/contexts";
-import { SparklesIcon } from "lucide-react";
+import { SettingsIcon } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { ErrorBoundary } from "react-error-boundary";
 import { ErrorLayout } from "@/layouts";
-import { getPlatform } from "@/lib";
+import { getPlatform, getShortcutsConfig } from "@/lib";
+
+/** "cmd+shift+d" -> "⌘⇧D" on macOS, "Ctrl+Shift+D" elsewhere. */
+function formatShortcut(key: string): string {
+  if (!key) return "";
+  const mac = getPlatform() === "macos";
+  const names: Record<string, string> = mac
+    ? { cmd: "⌘", command: "⌘", shift: "⇧", alt: "⌥", option: "⌥", ctrl: "⌃", control: "⌃" }
+    : { ctrl: "Ctrl+", control: "Ctrl+", shift: "Shift+", alt: "Alt+", cmd: "Ctrl+" };
+  return key
+    .split("+")
+    .map((part) => names[part.toLowerCase()] ?? part.toUpperCase())
+    .join("");
+}
 
 const App = () => {
   const { isHidden } = useApp();
   const { customizable } = useAppContext();
   const platform = getPlatform();
+
+  const dashboardKey = formatShortcut(
+    getShortcutsConfig().bindings.toggle_dashboard?.key ?? ""
+  );
 
   const openDashboard = async () => {
     try {
@@ -42,10 +59,10 @@ const App = () => {
             <Button
               size={"icon"}
               className="cursor-pointer"
-              title="Open Dev Space"
+              title={dashboardKey ? `Settings (${dashboardKey})` : "Settings"}
               onClick={openDashboard}
             >
-              <SparklesIcon className="h-4 w-4" />
+              <SettingsIcon className="h-4 w-4" />
             </Button>
           </div>
           <DragButton />

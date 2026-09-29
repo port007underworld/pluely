@@ -1,14 +1,15 @@
 import { Button } from "@/components";
 import { useApp } from "@/contexts";
-import { Volume2Icon, VolumeXIcon } from "lucide-react";
+import { AudioLinesIcon } from "lucide-react";
 
 /**
- * Toggle for the passive system audio daemon (record last N seconds of system audio;
- * attach to chat via shortcut, e.g. Cmd+Shift+A).
+ * Meeting mode toggle: listens to meeting audio (and optionally the mic) and
+ * transcribes it so the screenshot shortcut can include what was said.
  */
-export const SystemAudioDaemonToggle = () => {
+export const MeetingModeToggle = () => {
   const { systemAudioDaemonConfig, setSystemAudioDaemonConfig, systemAudioError } = useApp();
   const enabled = systemAudioDaemonConfig.enabled;
+  const failed = enabled && Boolean(systemAudioError);
 
   const toggle = () => {
     setSystemAudioDaemonConfig((prev) => ({ ...prev, enabled: !prev.enabled }));
@@ -17,21 +18,21 @@ export const SystemAudioDaemonToggle = () => {
   return (
     <Button
       size="icon"
-      variant={enabled ? (systemAudioError ? "destructive" : "default") : "ghost"}
-      className="cursor-pointer"
+      variant={failed ? "destructive" : enabled ? "default" : "ghost"}
+      className="relative cursor-pointer"
+      aria-pressed={enabled}
       title={
-        enabled && systemAudioError
-          ? `System audio capture failed: ${systemAudioError}`
+        failed
+          ? `Meeting mode couldn't start: ${systemAudioError}`
           : enabled
-          ? `System audio capture on (last ${systemAudioDaemonConfig.bufferSeconds}s). Shortcut to attach.`
-          : "Enable system audio capture to include meeting audio with screenshots"
+          ? "Meeting mode on: listening to the meeting. Press the screenshot shortcut to include what was said."
+          : "Turn on Meeting mode to include what's said in the meeting with screenshots"
       }
       onClick={toggle}
     >
-      {enabled ? (
-        <Volume2Icon className="h-4 w-4" />
-      ) : (
-        <VolumeXIcon className="h-4 w-4" />
+      <AudioLinesIcon className={`h-4 w-4 ${enabled ? "" : "opacity-60"}`} />
+      {enabled && !failed && (
+        <span className="absolute -top-0.5 -right-0.5 size-2 rounded-full bg-emerald-500 ring-2 ring-background animate-pulse" />
       )}
     </Button>
   );

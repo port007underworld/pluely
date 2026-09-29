@@ -11,7 +11,7 @@ AI assistant that integrates better with you.
 
 ## Meeting transcription
 
-When system audio capture is on (speaker icon in the overlay, or its shortcut), the screenshot shortcut also sends a transcript of the recent conversation. The AI can then answer what was just asked in the meeting, not only what's on screen.
+When **Meeting mode** is on (speaker icon in the overlay, or its shortcut), the screenshot shortcut also sends a transcript of the recent conversation. The AI can then answer what was just asked in the meeting, not only what's on screen.
 
 - **Structured transcript.** Lines are timestamped ("[-1m20s]") and labelled by who spoke:
   - "Them" is the other participants (computer audio).
@@ -23,7 +23,7 @@ When system audio capture is on (speaker icon in the overlay, or its shortcut), 
   - **Raw audio** (advanced): attaches the audio file itself, for AI providers that accept audio (e.g. Gemini).
 - **Live transcription.** With the local engine, speech is transcribed in the background as people talk. A shortcut press is near-instant and can include up to the last 10 minutes (default 5).
 - **Your microphone** (optional). Your side of the conversation is transcribed separately. Speaker audio picked up by the mic is filtered out; headphones give the cleanest result.
-- **Speaker separation** (macOS, optional): tells remote participants apart by voice with a small on-device model (26 MB). Numbering restarts each time audio capture is turned on.
+- **Speaker separation** (macOS, optional): tells remote participants apart by voice with a small on-device model (26 MB). Numbering restarts each time Meeting mode is turned on.
 - **Silence detection.** If no audio was captured (nothing playing, or permission missing), the overlay says so instead of sending silence.
 - **Test it:** "Transcribe now" in the settings runs exactly what the shortcut does.
 
@@ -51,7 +51,7 @@ The default prompts make the AI answer the one thing you need right now: the que
 
 - **Dev Space › Recent Requests** shows exactly what was sent for the last 25 questions: history, attachments, transcript, token estimate, timing and errors. It's stored only on your device and never includes API keys.
 - **Settings › Permissions** shows whether Screen Recording and Microphone are granted, and can check that system audio is actually coming through. It has shortcuts to the right System Settings pages.
-- If system audio capture fails to start, the overlay's speaker button turns red and shows the reason.
+- If Meeting mode fails to start, the overlay's speaker button turns red and shows the reason.
 - API keys are never written to the console or logs.
 
 ## Building

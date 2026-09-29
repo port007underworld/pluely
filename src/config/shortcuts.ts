@@ -63,8 +63,8 @@ export const DEFAULT_SHORTCUT_ACTIONS: ShortcutAction[] = [
   },
   {
     id: "toggle_system_audio",
-    name: "Toggle System Audio",
-    description: "Enable/Disable the system audio daemon",
+    name: "Toggle Meeting Mode",
+    description: "Turn Meeting mode on or off (listen to the meeting and transcribe it)",
     defaultKey: {
       macos: "cmd+shift+m",
       windows: "ctrl+shift+m",

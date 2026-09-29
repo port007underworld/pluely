@@ -129,7 +129,6 @@ export const useCompletion = () => {
     currentConversationId: null,
     conversationHistory: [],
   });
-  const [messageHistoryOpen, setMessageHistoryOpen] = useState(false);
   const [isFilesPopoverOpen, setIsFilesPopoverOpen] = useState(false);
   const [isScreenshotLoading, setIsScreenshotLoading] = useState(false);
   const [keepEngaged, setKeepEngaged] = useState(false);
@@ -485,9 +484,9 @@ export const useCompletion = () => {
     setState((prev) => ({ ...prev, isLoading: false }));
   }, []);
 
-  const reset = useCallback(() => {
-    // Don't reset if keep engaged mode is active
-    if (keepEngaged) {
+  /** Close the answer panel. `force` also closes it in conversation mode. */
+  const reset = useCallback((force = false) => {
+    if (keepEngaged && !force) {
       return;
     }
     cancel();
@@ -946,13 +945,8 @@ export const useCompletion = () => {
     keepEngaged;
 
   useEffect(() => {
-    resizeWindow(isPopoverOpen || messageHistoryOpen || isFilesPopoverOpen);
-  }, [
-    isPopoverOpen,
-    messageHistoryOpen,
-    resizeWindow,
-    isFilesPopoverOpen,
-  ]);
+    resizeWindow(isPopoverOpen || isFilesPopoverOpen);
+  }, [isPopoverOpen, resizeWindow, isFilesPopoverOpen]);
 
   // Auto scroll to bottom when response updates
   useEffect(() => {
@@ -1260,8 +1254,6 @@ export const useCompletion = () => {
     conversationHistory: state.conversationHistory,
     loadConversation,
     startNewConversation,
-    messageHistoryOpen,
-    setMessageHistoryOpen,
     screenshotConfiguration,
     setScreenshotConfiguration,
     handleScreenshotSubmit,

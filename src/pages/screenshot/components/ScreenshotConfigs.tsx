@@ -271,12 +271,12 @@ export const ScreenshotConfigs = ({
       {/* Step 1 of meeting audio: capture. What happens to it is step 2 (TranscriptionSettings). */}
       <div id="system-audio" className="space-y-3 pt-4 border-t border-border/50">
         <Header
-          title="1. Meeting audio capture"
-          description="While on, Runningbord keeps listening to your computer's audio (the other people in a call) so the screenshot shortcut can include what was just said. Nothing leaves your machine until you press the shortcut. Also toggled by the speaker icon in the overlay. macOS 14.2+."
+          title="1. Meeting mode"
+          description="While Meeting mode is on, Runningbord listens to your computer's audio (the other people in a call), plus your microphone if you enable it below, and transcribes it so the screenshot shortcut can include what was just said. Nothing leaves your machine until you press the shortcut. Also toggled by the speaker icon in the overlay or its shortcut. Needs macOS 14.2+."
         />
         <div className="flex flex-col gap-2">
           <div className="flex items-center justify-between">
-            <Label className="text-sm font-medium">Capture system audio</Label>
+            <Label className="text-sm font-medium">Meeting mode</Label>
             <Switch
               checked={systemAudioDaemonConfig.enabled}
               onCheckedChange={handleSystemAudioDaemonEnabledChange}

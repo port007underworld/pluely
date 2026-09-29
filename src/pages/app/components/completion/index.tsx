@@ -1,6 +1,6 @@
 import { useCompletion } from "@/hooks";
 import { Screenshot } from "./Screenshot";
-import { SystemAudioDaemonToggle } from "./SystemAudioDaemonToggle";
+import { MeetingModeToggle } from "./MeetingModeToggle";
 import { Files } from "./Files";
 import { Input } from "./Input";
 
@@ -11,7 +11,7 @@ export const Completion = ({ isHidden }: { isHidden: boolean }) => {
     <>
       <Input {...completion} isHidden={isHidden} />
       <Screenshot {...completion} />
-      <SystemAudioDaemonToggle />
+      <MeetingModeToggle />
       <Files {...completion} />
     </>
   );

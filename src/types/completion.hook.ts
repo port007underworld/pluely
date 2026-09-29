@@ -63,7 +63,7 @@ export interface UseCompletionReturn {
   /** Function to cancel the current completion request */
   cancel: () => void;
   /** Function to reset the completion state (clears input, response, error, files) */
-  reset: () => void;
+  reset: (force?: boolean) => void;
 
   // State management
   /** Direct state setter for advanced use cases */
@@ -80,10 +80,6 @@ export interface UseCompletionReturn {
   startNewConversation: () => void;
 
   // UI state management
-  /** Whether the message history modal/panel is open */
-  messageHistoryOpen: boolean;
-  /** Function to control message history panel visibility */
-  setMessageHistoryOpen: Dispatch<SetStateAction<boolean>>;
   /** Whether keep engaged mode is active (keeps popover open for continuous conversation) */
   keepEngaged: boolean;
   /** Function to toggle keep engaged mode */

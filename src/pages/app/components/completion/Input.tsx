@@ -1,4 +1,4 @@
-import { Loader2, XIcon } from "lucide-react";
+import { Loader2, MessageSquarePlusIcon, MessagesSquareIcon, XIcon } from "lucide-react";
 import {
   Popover,
   PopoverContent,
@@ -7,11 +7,11 @@ import {
   ScrollArea,
   Input as InputComponent,
   Markdown,
-  Switch,
   CopyButton,
 } from "@/components";
 import { UseCompletionReturn } from "@/types";
-import { MessageHistory } from "./MessageHistory";
+
+const MOD = navigator.platform.toLowerCase().includes("mac") ? "⌘" : "Ctrl+";
 
 export const Input = ({
   isPopoverOpen,
@@ -24,8 +24,6 @@ export const Input = ({
   currentConversationId,
   conversationHistory,
   startNewConversation,
-  messageHistoryOpen,
-  setMessageHistoryOpen,
   error,
   audioNotice,
   idleResetNotice,
@@ -63,24 +61,24 @@ export const Input = ({
               disabled={isLoading || isHidden}
               className={`${
                 currentConversationId && conversationHistory.length > 0
-                  ? "pr-14"
+                  ? "pr-12"
                   : "pr-2"
               }`}
             />
 
-            {/* Conversation thread indicator */}
+            {/* In a conversation: message count; click to see it (conversation mode) */}
             {currentConversationId &&
               conversationHistory.length > 0 &&
               !isLoading && (
-                <div className="absolute select-none right-1 top-1/2 -translate-y-1/2 flex items-center gap-1">
-                  <MessageHistory
-                    conversationHistory={conversationHistory}
-                    currentConversationId={currentConversationId}
-                    onStartNewConversation={startNewConversation}
-                    messageHistoryOpen={messageHistoryOpen}
-                    setMessageHistoryOpen={setMessageHistoryOpen}
-                  />
-                </div>
+                <button
+                  type="button"
+                  onClick={() => setKeepEngaged(true)}
+                  title={`${conversationHistory.length} messages in this conversation. Click to view (${MOD}K)`}
+                  className="absolute right-1.5 top-1/2 -translate-y-1/2 flex items-center gap-1 rounded-md border border-input/50 px-1.5 py-0.5 text-[11px] text-muted-foreground hover:bg-muted/50 cursor-pointer"
+                >
+                  <MessagesSquareIcon className="size-3.5" />
+                  {conversationHistory.length}
+                </button>
               )}
 
             {/* Loading indicator */}
@@ -101,12 +99,12 @@ export const Input = ({
         >
           <div className="flex items-center justify-between px-4 py-2 border-b bg-muted/30">
             <div className="flex flex-row gap-1 items-center">
-              <h3 className="font-semibold text-xs select-none">
-                {keepEngaged ? "Conversation Mode" : "AI Response"}
+              <h3
+                className="font-semibold text-xs select-none"
+                title="Use the arrow keys to scroll"
+              >
+                {keepEngaged ? "Conversation" : "AI Response"}
               </h3>
-              <div className="text-[10px] text-muted-foreground/70">
-                (Use arrow keys to scroll)
-              </div>
               {contextInfo && contextInfo.totalMessages > 0 && (
                 <div
                   className="text-[10px] text-muted-foreground/70"
@@ -148,27 +146,37 @@ export const Input = ({
                   </button>
                 </div>
               )}
-              <div className="flex flex-row items-center gap-2 mr-2">
-                <p className="text-[10px]">{`Toggle ${
-                  keepEngaged ? "AI response" : "conversation mode"
-                }`}</p>
-                <span className="text-[10px] text-muted-foreground/60 bg-muted/30 px-1 py-0 rounded border border-input/50">
-                  {navigator.platform.toLowerCase().includes("mac")
-                    ? "⌘"
-                    : "Ctrl"}{" "}
-                  + K
-                </span>
-                <Switch
-                  checked={keepEngaged}
-                  onCheckedChange={(checked) => {
-                    setKeepEngaged(checked);
-                    // Focus input after toggle
-                    setTimeout(() => {
-                      inputRef?.current?.focus();
-                    }, 100);
-                  }}
-                />
-              </div>
+              <Button
+                size="icon"
+                variant={keepEngaged ? "secondary" : "ghost"}
+                className="cursor-pointer"
+                title={
+                  keepEngaged
+                    ? `Show only the latest answer (${MOD}K)`
+                    : `Show the whole conversation (${MOD}K)`
+                }
+                aria-pressed={keepEngaged}
+                onClick={() => {
+                  setKeepEngaged(!keepEngaged);
+                  setTimeout(() => inputRef?.current?.focus(), 100);
+                }}
+              >
+                <MessagesSquareIcon />
+              </Button>
+              <Button
+                size="icon"
+                variant="ghost"
+                className="cursor-pointer"
+                title={`New chat (${MOD}⇧N)`}
+                disabled={isLoading || conversationHistory.length === 0}
+                onClick={() => {
+                  startNewConversation();
+                  setKeepEngaged(false);
+                  setTimeout(() => inputRef?.current?.focus(), 100);
+                }}
+              >
+                <MessageSquarePlusIcon />
+              </Button>
               <CopyButton content={response} />
               <Button
                 size="icon"
@@ -176,22 +184,13 @@ export const Input = ({
                 onClick={() => {
                   if (isLoading) {
                     cancel();
-                  } else if (keepEngaged) {
-                    // When keepEngaged is on, close everything and start new conversation
-                    setKeepEngaged(false);
-                    startNewConversation();
                   } else {
-                    reset();
+                    setKeepEngaged(false);
+                    reset(true);
                   }
                 }}
                 className="cursor-pointer"
-                title={
-                  isLoading
-                    ? "Cancel loading"
-                    : keepEngaged
-                    ? "Close and start new conversation"
-                    : "Clear conversation"
-                }
+                title={isLoading ? "Stop generating" : "Close"}
               >
                 <XIcon />
               </Button>

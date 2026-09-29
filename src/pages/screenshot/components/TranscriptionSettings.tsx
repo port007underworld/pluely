@@ -378,7 +378,7 @@ export const TranscriptionSettings = () => {
               )}
               {config.captureMic && !systemAudioDaemonConfig.enabled && (
                 <p className="text-xs text-muted-foreground mt-1">
-                  Starts together with system audio capture.
+                  Starts together with Meeting mode.
                 </p>
               )}
             </div>
@@ -513,7 +513,7 @@ export const TranscriptionSettings = () => {
                 <div>
                   <p className="text-sm font-medium">Live transcription</p>
                   <p className="text-xs text-muted-foreground">
-                    Transcribes in the background while audio capture is on, so the shortcut
+                    Transcribes in the background while Meeting mode is on, so the shortcut
                     responds instantly and can include several minutes of conversation. Uses
                     some CPU only while people are speaking.
                   </p>
@@ -550,7 +550,7 @@ export const TranscriptionSettings = () => {
                   <p className="text-xs text-muted-foreground">
                     Labels different people as Speaker 1, Speaker 2… by their voice, so the AI
                     knows who asked what. Runs on this device; needs a {speakerModel.sizeMb} MB
-                    voice model. Numbering starts fresh each time audio capture is turned on.
+                    voice model. Numbering starts fresh each time Meeting mode is turned on.
                   </p>
                   {progress[SPEAKER_MODEL_ID] && (
                     <p className="text-[10px] text-muted-foreground mt-1 tabular-nums">
@@ -684,7 +684,7 @@ export const TranscriptionSettings = () => {
                       ? windowLabel(config.transcriptWindowSeconds)
                       : `${systemAudioDaemonConfig.bufferSeconds} seconds`
                   } exactly as the shortcut would.`
-                : "Turn on system audio capture (speaker icon in the overlay) to test."}
+                : "Turn on Meeting mode (speaker icon in the overlay) to test."}
             </p>
           </div>
           <Button
@@ -698,7 +698,7 @@ export const TranscriptionSettings = () => {
         </div>
         {systemAudioDaemonConfig.enabled && systemAudioError && (
           <p className="text-xs text-destructive">
-            System audio capture failed to start: {systemAudioError}
+            Meeting mode couldn't start: {systemAudioError}
           </p>
         )}
         {testResult && (

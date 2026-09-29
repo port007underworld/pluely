@@ -102,7 +102,7 @@ export const Permissions = () => {
     checking: "Listening…",
     receiving: "Receiving audio",
     silent: "Only silence",
-    off: "Turn on audio capture first",
+    off: "Turn on Meeting mode first",
     error: systemAudioError ?? "Capture not running",
   }[audio];
 
@@ -146,7 +146,7 @@ export const Permissions = () => {
       {audio === "silent" && (
         <p className="text-xs text-amber-700 dark:text-amber-400 -mt-1 pl-1">
           If audio was playing, macOS is probably withholding it: allow Runningbord under System
-          Audio Recording, then turn audio capture off and on again.
+          Audio Recording, then turn Meeting mode off and on again.
         </p>
       )}
 

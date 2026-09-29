@@ -287,7 +287,7 @@ export async function captureMeetingAudio(options: {
     return done({
       segments: [],
       engineUsed: "none",
-      warning: `Could not read system audio: ${errorMessage(e)}`,
+      warning: `Could not read meeting audio: ${errorMessage(e)}`,
     });
   }
 }

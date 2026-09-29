@@ -1,5 +1,5 @@
 import { Button } from "@/components";
-import { LaptopMinimalIcon, Loader2, MousePointer2Icon } from "lucide-react";
+import { CameraIcon, Loader2 } from "lucide-react";
 import { UseCompletionReturn } from "@/types";
 import { MAX_FILES } from "@/config";
 import { useApp } from "@/contexts";
@@ -13,9 +13,10 @@ export const Screenshot = ({
 }: UseCompletionReturn) => {
   const { supportsImages } = useApp();
   const captureMode = screenshotConfiguration.enabled
-    ? "Screenshot"
-    : "Selection";
-  const processingMode = screenshotConfiguration.mode;
+    ? "full screen"
+    : "select an area";
+  const processingMode =
+    screenshotConfiguration.mode === "auto" ? "sent to the AI right away" : "added to attachments";
 
   const isDisabled =
     attachedFiles.length >= MAX_FILES ||
@@ -30,17 +31,15 @@ export const Screenshot = ({
       title={
         !supportsImages
           ? "Screenshot not supported by current AI provider"
-          : `${captureMode} mode (${processingMode}) - ${attachedFiles.length}/${MAX_FILES} files`
+          : `Screenshot (${captureMode}, ${processingMode})`
       }
       onClick={captureScreenshot}
       disabled={isDisabled}
     >
       {isScreenshotLoading ? (
         <Loader2 className="h-4 w-4 animate-spin" />
-      ) : screenshotConfiguration.enabled ? (
-        <LaptopMinimalIcon className="h-4 w-4" />
       ) : (
-        <MousePointer2Icon className="h-4 w-4" />
+        <CameraIcon className="h-4 w-4" />
       )}
     </Button>
   );
