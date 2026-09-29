@@ -2,10 +2,15 @@
 
 AI assistant that integrates better with you.
 
-**Extra features:**
-- Completely stripped off license logic with updater logic removed to avoid conflicts.
-- Auto screenshot upload with automatic prompt on key press.
-- Ability to choose between fast and slow models (pro, reasoning etc.) through a chat UI toggle, if specified in Dev Space/dashboard settings.
+**New here? Read the [User Guide](docs/USER_GUIDE.md)** for setup, every feature, keyboard shortcuts, privacy and troubleshooting, written for first-time users.
+
+**Highlights:**
+- Answers from a screenshot plus what was just said in the meeting, with one key press.
+- Meeting transcription on your own computer (Whisper), with speaker names and talk time.
+- Optional automatic answers to other people's questions, suggested follow-ups and quick rewrites.
+- Pinned facts, meeting prep from an invite, meeting notes, and profiles per kind of meeting.
+- Chats stored locally with full-text search, export and automatic deletion; API keys in the system keychain.
+- Opt-in, signed updates. No analytics and no account.
 
 **Supported platforms:** macOS (Apple Silicon and Intel) and Windows (x64). Linux is not supported.
 
