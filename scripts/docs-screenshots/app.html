@@ -17,86 +17,20 @@
   </head>
   <body>
     <div id="root"></div>
+    <script src="./mocks.js"></script>
     <script>
-      const params = new URLSearchParams(location.search);
-      const scene = params.get("scene") || "bar";
+      const scene = new URLSearchParams(location.search).get("scene") || "bar";
       history.replaceState(null, "", "/");
-
-      localStorage.clear();
-      const set = (k, v) => localStorage.setItem(k, typeof v === "string" ? v : JSON.stringify(v));
-      set("theme", params.get("theme") || "dark");
-      set("onboarding_completed", "true");
-      set("curl_selected_ai_provider", { provider: "openai", variables: { model: "gpt-4o-mini" }, secretVariables: ["api_key"] });
-      set("system_audio_daemon_config", { enabled: true, bufferSeconds: 30 });
-      set("transcription_config", { engine: "local", localModel: "base.en", language: "auto", captureMic: true, live: true, transcriptWindowSeconds: 300, separateSpeakers: true, autoAnswer: true, autoAnswerScreenshot: false, autoAnswerDelayMs: 2000, meetingNotes: true });
-      set("pinned_facts", [
-        { id: "p1", text: "Budget is $40k", addedAt: 1 },
-        { id: "p2", text: "Decision needed by Oct 31", addedAt: 2 },
-      ]);
-      set("screen_recording_granted", "true");
-
-      const answers = [
+      window.__docsReplies = [
         "Use a **token bucket per API key**, kept in Redis so every server shares the same counts.\n\n- Each key gets a bucket of *N* tokens that refills at a fixed rate; a request spends one token.\n- Out of tokens: return **429** with a `Retry-After` header.\n- Bursts are allowed up to the bucket size, which suits real client traffic.\n\n[[follow-ups]]\nHow would you handle limits across several regions?\nWhat happens if Redis goes down?\nHow do customers see how close they are to the limit?",
         "Do the check-and-spend **atomically in Redis** with a short Lua script, so two servers can't spend the same token:\n\n```python\nallowed = redis.eval(TOKEN_BUCKET_LUA, 1, f\"rl:{api_key}\",\n                     capacity, refill_per_sec, now)\nif not allowed:\n    raise TooManyRequests(retry_after=1)\n```\n\nIf Redis is unreachable, **fail open** with a small per-server limit, so an outage doesn't block every customer.\n\n[[follow-ups]]\nWhy fail open instead of closed?\nHow would you test this under load?",
       ];
-      let answerIndex = 0;
 
-      const realFetch = window.fetch.bind(window);
-      window.fetch = async (url, init) => {
-        if (!String(url).includes("api.openai.com")) return realFetch(url, init);
-        const text = answers[Math.min(answerIndex++, answers.length - 1)];
-        const pieces = text.match(/[\s\S]{1,24}/g);
-        const body = pieces
-          .map((p) => `data: ${JSON.stringify({ choices: [{ delta: { content: p } }] })}\n\n`)
-          .join("") + "data: [DONE]\n\n";
-        return new Response(new Blob([body]).stream(), {
-          status: 200,
-          headers: { "Content-Type": "text/event-stream" },
-        });
-      };
-
-      const now = Date.now();
-      let callback = 0;
-      window.__TAURI_INTERNALS__ = {
-        metadata: { currentWindow: { label: "main" }, currentWebview: { label: "main", windowLabel: "main" } },
-        transformCallback: () => ++callback,
-        unregisterCallback: () => {},
-        convertFileSrc: (p) => p,
-        invoke: async (cmd) => {
-          switch (cmd) {
-            case "secret_get": return "sk-docs-example";
-            case "get_app_version": return "0.3.0";
-            case "live_transcript_stats":
-              return {
-                startedMs: now - 600000,
-                speakers: [
-                  { label: "Speaker 1", source: "system", lines: 40, words: 900, talkMs: 150000, lastText: "What happens if Redis goes down?" },
-                  { label: "You", source: "mic", lines: 22, words: 260, talkMs: 100000, lastText: "We'd fail open." },
-                ],
-                longestMonologueMs: 42000,
-                currentMonologueMs: 0,
-              };
-            case "live_transcript_status": return { running: true, modelId: "base.en", segmentCount: 62, lastError: null };
-            case "live_transcript_get": return { segments: [], text: "", silent: false, silenceRatio: 0, micSilenceRatio: 0, audioSeconds: 0, durationMs: 1 };
-            case "plugin:sql|load": return "sqlite:runningbord.db";
-            case "plugin:sql|select": return [];
-            case "plugin:sql|execute": return [1, 0];
-          }
-          if (cmd.startsWith("plugin:event|")) return 1;
-          if (cmd.startsWith("plugin:macos-permissions|")) return true;
-          return null;
-        },
-      };
-      window.__TAURI_EVENT_PLUGIN_INTERNALS__ = { unregisterListener: () => {} };
-
-      // Drive the UI like a user: ask two questions, then (for the bar) close the panel.
-      const wait = (ms) => new Promise((r) => setTimeout(r, ms));
-      const until = async (fn) => { for (let i = 0; i < 200 && !fn(); i++) await wait(25); return fn(); };
+      const { wait, until, type, ready } = window.__docs;
+      // Drive the UI like a user: Meeting mode on, ask two questions, then (for the bar) close the panel.
       const ask = async (question) => {
         const input = await until(() => document.querySelector("input[placeholder]"));
-        const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set;
-        setter.call(input, question);
-        input.dispatchEvent(new Event("input", { bubbles: true }));
+        type(input, question);
         await wait(50);
         input.dispatchEvent(new KeyboardEvent("keypress", { key: "Enter", code: "Enter", charCode: 13, keyCode: 13, bubbles: true }));
         await until(() => [...document.querySelectorAll("button")].some((b) => b.textContent.trim() === "Shorter"));
@@ -104,7 +38,6 @@
       };
       window.addEventListener("load", async () => {
         await wait(600);
-        // Turn Meeting mode on the way a user would (shows auto-answer and talk time).
         const meeting = await until(() =>
           document.querySelector("button[aria-pressed] svg.lucide-audio-lines")?.closest("button")
         );
@@ -116,8 +49,7 @@
           document.querySelector('button[title="Close"]')?.click();
           await wait(1500);
         }
-        document.documentElement.dataset.ready = "true";
-        parent.postMessage("ready", "*");
+        ready(null);
       });
     </script>
     <script type="module" src="/src/main.tsx"></script>

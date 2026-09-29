@@ -1,28 +1,46 @@
 <!doctype html>
-<!-- Places app.html on a desktop-like background at the overlay's real size. -->
+<!--
+  Hosts a docs-screenshot page in an iframe.
+    ?page=app        the overlay, at its real window size on a desktop-like background
+    ?page=dashboard  one dashboard section, sized to its content
+  Other query parameters are passed through. When the page is ready, the size to
+  capture is written to <body data-shot-height>.
+-->
 <html>
   <head>
     <meta charset="UTF-8" />
     <style>
       html, body { margin: 0; height: 100%; }
-      body {
+      body.desktop {
         display: flex; align-items: flex-start; justify-content: center;
         padding-top: 28px; box-sizing: border-box;
         background: radial-gradient(120% 140% at 20% 0%, #334155 0%, #0f172a 55%, #020617 100%);
       }
-      body.light { background: radial-gradient(120% 140% at 20% 0%, #e2e8f0 0%, #cbd5e1 55%, #94a3b8 100%); }
-      iframe { border: 0; width: 600px; background: transparent; }
+      body.desktop.light { background: radial-gradient(120% 140% at 20% 0%, #e2e8f0 0%, #cbd5e1 55%, #94a3b8 100%); }
+      iframe { border: 0; display: block; background: transparent; }
     </style>
   </head>
   <body>
     <script>
       const params = new URLSearchParams(location.search);
-      if (params.get("theme") === "light") document.body.classList.add("light");
+      const page = params.get("page") || "app";
       const frame = document.createElement("iframe");
-      // The real window is 600 px wide, 54 px tall collapsed and 600 px open.
-      frame.style.height = params.get("scene") === "panel" ? "600px" : "54px";
-      frame.src = `app.html${location.search}`;
-      frame.allowTransparency = true;
+      if (page === "app") {
+        document.body.classList.add("desktop");
+        if (params.get("theme") === "light") document.body.classList.add("light");
+        // The real window is 600 px wide, 54 px tall collapsed and 600 px open.
+        frame.style.width = "600px";
+        frame.style.height = params.get("scene") === "panel" ? "600px" : "54px";
+      } else {
+        frame.style.width = "680px";
+        frame.style.height = "2000px";
+      }
+      frame.src = `${page}.html${location.search}`;
+      window.addEventListener("message", ({ data }) => {
+        if (!data || !data.docsReady) return;
+        if (data.height) frame.style.height = `${data.height}px`;
+        document.body.dataset.shotHeight = String(data.height ?? "");
+      });
       document.body.appendChild(frame);
     </script>
   </body>

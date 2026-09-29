@@ -87,7 +87,7 @@ The overlay is the slim bar that floats above your other windows.
 | Part (left to right) | What it does |
 |---|---|
 | **Input box** | Type a question and press **Enter**. |
-| **📌 2** (pin) | Number of pinned facts. Hover to see them, click to manage them. |
+| **📌 3** (pin) | Number of pinned facts. Hover to see them, click to manage them. |
 | **💬 4** (speech bubbles) | Number of messages in the current conversation. Click to see the whole conversation. |
 | **Camera** | Take a screenshot and ask about it (same as **⌘⇧S**). |
 | **Waveform** | Turn **Meeting mode** on or off. Green dot: listening. Red button: it couldn't start; hover for the reason. |
@@ -183,6 +183,8 @@ When someone **else** in the meeting asks a question, Runningbord answers it aut
 - Optional: **Include a screenshot**, for questions about what's on screen.
 - Each answer is labelled **"Auto-answer: …"** so you know where it came from.
 
+![Auto-answer settings on the Meeting page: the on/off switch, how long to wait after the speaker stops, and whether to include a screenshot](images/meeting-auto-answer.png)
+
 > Each automatic answer is a normal AI request, so it costs the same as pressing the shortcut.
 
 ### Pinned facts
@@ -193,10 +195,14 @@ Facts the AI should treat as true for this meeting, such as "Budget is $40k", "T
 - **Clear:** type `/unpin all`, or use **Clear all** on the Meeting page.
 - Up to 30 facts. They stay until you clear them.
 
+![The Pinned Facts section with three pinned facts and a box to add more](images/meeting-pinned-facts.png)
+
 ### People (speaker names)
 Lists everyone heard so far, with the last thing each person said, so you can tell who's who. Type a name next to "Speaker 1" (or "Them") and answers, transcripts and notes will use it.
 - Names reset when the next meeting starts, because the numbering starts over.
 - Without **Tell speakers apart**, everyone else is "Them". In a one-on-one call, naming "Them" is enough.
+
+![The People section: Speaker 1 named Priya and Speaker 2 named Tom, each with the last thing they said](images/meeting-people.png)
 
 ### Talk time
 Shows how much you've talked compared with everyone else. Needs **Also capture my microphone**.
@@ -204,11 +210,15 @@ Shows how much you've talked compared with everyone else. Needs **Also capture m
 - **Overlay:** a thin bar at the bottom shows your share. It turns **amber** if you're above 60% or have been talking for 90 seconds straight. Hover for the numbers.
 - Rules of thumb: a comfortable pace is 130–160 words a minute; on sales calls, listen more than you talk; in interviews, keep single answers under two minutes.
 
+![The Talk Time section: bars for You, Priya and Tom, your pace in words per minute, and your longest stretch of talking](images/meeting-talk-time.png)
+
 ### Meeting notes
 When you turn Meeting mode off, Runningbord can write notes: **summary, key points, decisions, action items and open questions**. They're saved in **Chats** together with the full transcript.
 - Turn on **Write notes when Meeting mode is turned off**. It's off by default because the whole transcript is sent to your AI provider.
 - Only meetings of two minutes or longer get notes.
 - **Generate now** makes notes on demand, even halfway through a meeting.
+
+![The Meeting Notes section: the switch to write notes when Meeting mode is turned off, and a Generate now button](images/meeting-notes.png)
 
 ### Prepare for a meeting
 Paste a calendar invite, agenda, email thread or job description and click **Prepare**. You get:
@@ -216,6 +226,8 @@ Paste a calendar invite, agenda, email thread or job description and click **Pre
 - attendees and agenda;
 - up to five **facts** worth keeping in mind;
 - up to five **questions** you're likely to be asked.
+
+![Prepare for a Meeting after pasting an invite: the brief with summary, attendees and likely questions, and switches for what to apply](images/meeting-prep.png)
 
 Then choose what to apply:
 - **Switch profile / prompt:** uses the matching profile, or the right prompt for an interview, sales call or team meeting.

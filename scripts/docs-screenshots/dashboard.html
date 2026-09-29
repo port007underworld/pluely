@@ -1,0 +1,63 @@
+<!doctype html>
+<!--
+  A section of the real dashboard (Meeting page) with sample data, shown on its
+  own for user-guide screenshots. See capture.mjs.
+    ?section=meeting-prep|pinned-facts|auto-answer|people|talk-time|meeting-notes
+-->
+<html data-window="dashboard">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Runningbord dashboard</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script src="./mocks.js"></script>
+    <script>
+      const section = new URLSearchParams(location.search).get("section") || "people";
+      history.replaceState(null, "", "/meeting");
+
+      const INVITE = `Subject: Northwind x Acme - Technical & Commercial Discovery
+When: Thursday, 10:00-10:45 AM PT (Google Meet)
+Attendees: Priya Raman (VP Engineering, Northwind), Tom Becker (Procurement Lead, Northwind), you (Solutions Engineer, Acme)
+Agenda: current setup (Kubernetes, 3 regions) and API rate limiting; regional failover; pricing for ~200 users, budget $40k; onboarding and Okta SSO; next steps.
+Tom: decision needed by October 31. The last vendor migration took four months.`;
+      window.__docsReplies = [JSON.stringify({
+        title: "Northwind × Acme technical and commercial discovery",
+        kind: "sales-call",
+        profile: null,
+        summary: "First discovery call with Northwind's engineering and procurement leads. Aim to show how Acme handles rate limiting and regional failover, and agree a pilot within their $40k budget.",
+        attendees: [{ name: "Priya Raman", role: "VP Engineering" }, { name: "Tom Becker", role: "Procurement Lead" }],
+        agenda: ["Current setup and API rate limiting", "Regional failover", "Pricing for ~200 users", "Onboarding and Okta SSO", "Next steps"],
+        facts: ["Budget is $40k", "Decision needed by Oct 31", "Kubernetes in three regions", "Last migration took four months"],
+        questions: ["How do you handle rate limiting across regions?", "What happens if a whole region goes down?", "What would 200 users cost?", "How long does onboarding take?", "Do you support Okta SSO?"],
+      })];
+
+      const { wait, until, type, ready } = window.__docs;
+      window.addEventListener("load", async () => {
+        const target = await until(() => document.getElementById(section));
+        if (!target) return ready(null);
+
+        if (section === "meeting-prep") {
+          type(target.querySelector("textarea"), INVITE);
+          await wait(100);
+          [...target.querySelectorAll("button")].find((b) => b.textContent.includes("Prepare"))?.click();
+          await until(() => [...target.querySelectorAll("button")].some((b) => b.textContent.includes("Apply")));
+        }
+        await wait(1200); // polled stats, model lists
+
+        // Show only this section, at the dashboard's content width.
+        const holder = document.createElement("div");
+        holder.id = "docs-shot";
+        holder.style.cssText = "width:680px;padding:24px;box-sizing:border-box;background:var(--background)";
+        document.body.style.margin = "0";
+        document.body.appendChild(holder);
+        holder.appendChild(section === "auto-answer" ? target.cloneNode(true) : target);
+        document.getElementById("root").style.display = "none";
+        if (section === "auto-answer") holder.firstChild.classList.remove("pl-6");
+        await wait(100);
+        ready(holder);
+      });
+    </script>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

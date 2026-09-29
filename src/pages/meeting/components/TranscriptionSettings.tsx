@@ -600,7 +600,7 @@ export const TranscriptionSettings = () => {
             )}
 
             {config.live && (
-              <div className="space-y-2 pl-6">
+              <div id="auto-answer" className="space-y-2 pl-6">
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <p className="text-xs font-medium">Answer questions automatically</p>
@@ -628,7 +628,7 @@ export const TranscriptionSettings = () => {
                       value={String(config.autoAnswerDelayMs)}
                       onValueChange={(v) => setConfig({ autoAnswerDelayMs: Number(v) })}
                     >
-                      <SelectTrigger className="w-40 shrink-0">
+                      <SelectTrigger className="w-48 shrink-0">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
