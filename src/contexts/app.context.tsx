@@ -8,6 +8,8 @@ import {
 import { getPlatform, safeLocalStorage, trackAppStart } from "@/lib";
 import {
   getShortcutsConfig,
+  loadProviderSelection,
+  persistProviderSelection,
   resolveScreenshotPrompt,
   resolveSystemPrompt,
   useTranscriptionConfig,
@@ -326,21 +328,13 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     }
     setCustomSttProviders(sttList);
 
-    // Load selected AI provider
-    const savedSelectedAi = safeLocalStorage.getItem(
-      STORAGE_KEYS.SELECTED_AI_PROVIDER
-    );
-    if (savedSelectedAi) {
-      setSelectedAIProvider(JSON.parse(savedSelectedAi));
-    }
-
-    // Load selected STT provider
-    const savedSelectedStt = safeLocalStorage.getItem(
-      STORAGE_KEYS.SELECTED_STT_PROVIDER
-    );
-    if (savedSelectedStt) {
-      setSelectedSttProvider(JSON.parse(savedSelectedStt));
-    }
+    // Selected providers; API keys come from the system keychain.
+    loadProviderSelection(STORAGE_KEYS.SELECTED_AI_PROVIDER, "ai").then((selection) => {
+      if (selection) setSelectedAIProvider(selection);
+    });
+    loadProviderSelection(STORAGE_KEYS.SELECTED_STT_PROVIDER, "stt").then((selection) => {
+      if (selection) setSelectedSttProvider(selection);
+    });
 
     // Load customizable state
     const customizableState = getCustomizableState();
@@ -524,24 +518,25 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     checkImageSupport();
   }, [runningbordApiEnabled, selectedAIProvider.provider]);
 
-  // Sync selected AI to localStorage
+  // Persist selected providers (secrets to the keychain), debounced while typing.
   useEffect(() => {
-    if (selectedAIProvider.provider) {
-      safeLocalStorage.setItem(
-        STORAGE_KEYS.SELECTED_AI_PROVIDER,
-        JSON.stringify(selectedAIProvider)
+    if (!selectedAIProvider.provider) return;
+    const timer = setTimeout(() => {
+      persistProviderSelection(STORAGE_KEYS.SELECTED_AI_PROVIDER, "ai", selectedAIProvider).catch(
+        (error) => console.error("Failed to save AI provider settings:", error)
       );
-    }
+    }, 400);
+    return () => clearTimeout(timer);
   }, [selectedAIProvider]);
 
-  // Sync selected STT to localStorage
   useEffect(() => {
-    if (selectedSttProvider.provider) {
-      safeLocalStorage.setItem(
-        STORAGE_KEYS.SELECTED_STT_PROVIDER,
-        JSON.stringify(selectedSttProvider)
+    if (!selectedSttProvider.provider) return;
+    const timer = setTimeout(() => {
+      persistProviderSelection(STORAGE_KEYS.SELECTED_STT_PROVIDER, "stt", selectedSttProvider).catch(
+        (error) => console.error("Failed to save speech-to-text provider settings:", error)
       );
-    }
+    }, 400);
+    return () => clearTimeout(timer);
   }, [selectedSttProvider]);
 
   // Persist system audio daemon config

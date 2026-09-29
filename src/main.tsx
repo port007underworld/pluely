@@ -5,6 +5,7 @@ import { AppProvider, ThemeProvider } from "./contexts";
 import "./global.css";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import AppRoutes from "./routes";
+import { startUpdateChecks } from "./lib/updater";
 
 const currentWindow = getCurrentWindow();
 const windowLabel = currentWindow.label;
@@ -19,6 +20,7 @@ if (windowLabel.startsWith("capture-overlay-")) {
     </React.StrictMode>
   );
 } else {
+  startUpdateChecks();
   ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
     <React.StrictMode>
       <ThemeProvider>

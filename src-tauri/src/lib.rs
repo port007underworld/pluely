@@ -4,6 +4,7 @@ mod api;
 mod capture;
 mod db;
 mod documents;
+mod secrets;
 mod local_stt;
 mod mic_audio;
 mod live_transcript;
@@ -55,8 +56,8 @@ pub fn run() {
         .manage(shortcuts::LicenseState::default())
         .manage(shortcuts::MoveWindowState::default())
         .plugin(tauri_plugin_opener::init())
-        // DISABLED: updater plugin — uncomment to re-enable
-        // .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_keychain::init())
         .plugin(tauri_plugin_shell::init()) // Add shell plugin
@@ -131,6 +132,9 @@ pub fn run() {
             speaker_id::speaker_model_download,
             speaker_id::speaker_model_delete,
             documents::extract_document_text,
+            secrets::secret_get,
+            secrets::secret_set,
+            secrets::secret_delete,
             api::transcribe_audio,
             api::chat_stream_response,
             api::chat_stream_cancel,

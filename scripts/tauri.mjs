@@ -8,7 +8,7 @@
 // Opt out for one build:   RUNNINGBORD_UNSIGNED=1 npm run tauri build
 // Use another identity:    APPLE_SIGNING_IDENTITY="..." npm run tauri build
 import { spawnSync } from "node:child_process";
-import { existsSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -87,7 +87,27 @@ function reportSignature() {
   );
 }
 
+/**
+ * Update files (.sig + latest.json) need the updater private key. Use ours from
+ * EXPORT_DIR when present; otherwise build without them so builds still work.
+ */
+function ensureUpdaterKey() {
+  if (env.TAURI_SIGNING_PRIVATE_KEY) return;
+  const secretsFile = join(EXPORT_DIR, "updater-secrets.txt");
+  if (existsSync(secretsFile)) {
+    for (const line of readFileSync(secretsFile, "utf8").split("\n")) {
+      const eq = line.indexOf("=");
+      if (eq > 0) env[line.slice(0, eq)] = line.slice(eq + 1);
+    }
+    console.log("[build] Signing update files with the key in ~/.runningbord-signing.");
+    return;
+  }
+  console.log("[build] No updater key: building without update files.");
+  args.push("--config", JSON.stringify({ bundle: { createUpdaterArtifacts: false } }));
+}
+
 if (isMacBuild) ensureSigning();
+if (args[0] === "build") ensureUpdaterKey();
 
 const result = run("tauri", args, { env, shell: process.platform === "win32" });
 if (isMacBuild && result.status === 0) reportSignature();

@@ -34,7 +34,7 @@
   },
   "bundle": {
     "active": true,
-    "createUpdaterArtifacts": false,
+    "createUpdaterArtifacts": true,
     "targets": "all",
     "icon": [
       "icons/32x32.png",
@@ -53,9 +53,11 @@
     "sql": {
       "preload": ["sqlite:runningbord.db"]
     },
-"ssss": {
-      "endpoints": ["https://runningbord.com/api/update"],
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDY2RDJBNUFFM0ZCREEyQjEKUldTeG9yMC9ycVhTWmlBRkovV2N5L3RudDhTTHFzM3QxSkF0R0doRGtvSUJKWktpdGp4cWRhcmcK",
+"updater": {
+      "endpoints": [
+        "https://github.com/port007underworld/pluely/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDNGOUQ5ODgxQTQ2RjBCRUMKUldUc0MyK2tnWmlkUHc0T1JCbzhDNVVpVHBaOWpHSm5tOVhCQWFzSUlGRC9kUDZFY3RtYjA0RkkK",
       "windows": {
         "installMode": "passive"
       }

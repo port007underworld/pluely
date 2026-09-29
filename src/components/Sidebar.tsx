@@ -4,10 +4,12 @@ import { cn } from "@/lib/utils";
 import { useLocation, useNavigate } from "react-router-dom";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useMenuItems, useVersion } from "@/hooks";
+import { useUpdater } from "@/lib/updater";
 
 export const Sidebar = () => {
   const { version, isLoading } = useVersion();
   const { menu, footerLinks, footerItems } = useMenuItems();
+  const update = useUpdater();
 
   const navigate = useNavigate();
   const activeRoute = useLocation().pathname;
@@ -56,6 +58,18 @@ export const Sidebar = () => {
       </nav>
 
       <div className="flex flex-col space-y-1 px-3  pb-3">
+        {(update.status === "available" || update.status === "downloading") && (
+          <button
+            type="button"
+            onClick={() => navigate("/settings")}
+            className="mb-2 rounded-xl border border-primary/40 bg-primary/10 px-3 py-2 text-left text-xs cursor-pointer hover:bg-primary/15"
+          >
+            <span className="font-medium">Update available</span>
+            <span className="block text-muted-foreground">
+              Version {update.version}. Click to install.
+            </span>
+          </button>
+        )}
         <div className="flex flex-row justify-evenly items-center gap-2 mb-3">
           {footerLinks.map((item, index) => (
             <Button

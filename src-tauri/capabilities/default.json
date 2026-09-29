@@ -21,6 +21,7 @@
       ]
     },
     "updater:default",
+    "process:allow-restart",
     "macos-permissions:default",
     "keychain:default",
     "keychain:allow-get-item",

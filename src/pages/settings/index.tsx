@@ -3,6 +3,7 @@ import {
   AlwaysOnTopToggle,
   AppIconToggle,
   Permissions,
+  Updates,
 } from "./components";
 import { PageLayout } from "@/layouts";
 
@@ -19,6 +20,8 @@ const Settings = () => {
       <AlwaysOnTopToggle />
 
       <Permissions />
+
+      <Updates />
     </PageLayout>
   );
 };

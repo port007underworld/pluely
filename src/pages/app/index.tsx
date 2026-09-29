@@ -6,7 +6,7 @@ import { SettingsIcon } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { ErrorBoundary } from "react-error-boundary";
 import { ErrorLayout } from "@/layouts";
-import { getPlatform, shortcutLabel } from "@/lib";
+import { getPlatform, shortcutLabel, useUpdater } from "@/lib";
 
 const App = () => {
   const { isHidden } = useApp();
@@ -14,6 +14,8 @@ const App = () => {
   const platform = getPlatform();
 
   const dashboardKey = shortcutLabel("toggle_dashboard");
+  const update = useUpdater();
+  const updateReady = update.status === "available";
 
   const openDashboard = async () => {
     try {
@@ -43,11 +45,20 @@ const App = () => {
             <Completion isHidden={isHidden} />
             <Button
               size={"icon"}
-              className="cursor-pointer"
-              title={dashboardKey ? `Settings (${dashboardKey})` : "Settings"}
+              className="relative cursor-pointer"
+              title={
+                updateReady
+                  ? `Update ${update.version} available: open Settings to install`
+                  : dashboardKey
+                  ? `Settings (${dashboardKey})`
+                  : "Settings"
+              }
               onClick={openDashboard}
             >
               <SettingsIcon className="h-4 w-4" />
+              {updateReady && (
+                <span className="absolute -top-0.5 -right-0.5 size-2 rounded-full bg-sky-500 ring-2 ring-background" />
+              )}
             </Button>
           </div>
           <DragButton />
