@@ -45,12 +45,16 @@ const SMALL_TALK = [
   /^(can|could) you repeat (that|the question)$/,
 ];
 
+/** Minimum wait after a line, so the rest of its chunk arrives first. */
+const SETTLE_MS = 150;
+
 /** Start of a reply, meaning the question was answered before we could. */
 const ANSWER_START =
   /^(yes|yeah|yep|yup|yea|sure|no|nope|nah|of course|absolutely|definitely|certainly|sounds good|sounds great|great|perfect|awesome|okay|ok|alright|all right|got it|i am|i'm|i do|i can|i see|i did|i have|we are|we do|we can|hey|hi|hello|thanks|thank you|mm-hmm|uh-huh|good|fine|not bad|doing well)\b/;
 
 /** Words people start sentences with that don't change what's being asked. */
-const LEADING_FILLER = /^((so|and|but|okay|ok|alright|all right|well|um|uh|erm|now|right|cool|great|perfect|awesome)[,.]?\s+)+/i;
+const LEADING_FILLER =
+  /^((so|and|but|okay|ok|alright|all right|well|um|uh|erm|hmm|mmm?|mm-hmm|now|right|cool|great|perfect|awesome|interesting|got it|i see|sure|nice)[,.!]?\s+)+/i;
 
 /** "Is this Nolan?" / "Am I speaking with Grace Lee?" (checked before lowercasing). */
 const WHO_IS_THIS = /^([Ii]s this|[Aa]m [Ii] (speaking|talking) (with|to)) [A-Z][a-z]+( [A-Z][a-z]+)?\??$/;
@@ -78,15 +82,24 @@ export function looksLikeQuestion(text: string): boolean {
   const words = line.split(/\s+/).filter(Boolean);
   if (words.length < 3 || NOT_A_QUESTION.test(line)) return false;
   if (line.endsWith("?")) return true;
-  return QUESTION_START.test(line) && words.length >= 5;
+  // Transcription often drops the "?"; a question word after any filler
+  // ("Mmm, interesting, why a…") still marks a question.
+  const core = line.replace(LEADING_FILLER, "");
+  return QUESTION_START.test(core) && core.split(/\s+/).length >= 5;
 }
 
 /** Greetings, logistics and check-ins that don't need a prepared answer. */
 export function isSmallTalk(question: string): boolean {
-  const asSaid = question.trim().replace(/^[-–—\s]+/, "").replace(LEADING_FILLER, "");
-  if (WHO_IS_THIS.test(asSaid)) return true;
-  const q = normalize(question);
-  return SMALL_TALK.some((pattern) => pattern.test(q));
+  // Whisper often joins sentences with commas ("…from Jane Street, is this
+  // Nolan?"), so also judge the last clause on its own.
+  const clauses = question.split(/[,;]\s+/);
+  const candidates = clauses.length > 1 ? [question, clauses[clauses.length - 1]] : [question];
+  return candidates.some((candidate) => {
+    const asSaid = candidate.trim().replace(/^[-–—\s]+/, "").replace(LEADING_FILLER, "");
+    if (WHO_IS_THIS.test(asSaid)) return true;
+    const q = normalize(candidate);
+    return SMALL_TALK.some((pattern) => pattern.test(q));
+  });
 }
 
 /** Whether a line starts like an answer to what was just asked. */
@@ -158,8 +171,10 @@ export function createQuestionDetector({
   const arm = (quietSince = Date.now()) => {
     clearTimeout(timer);
     quietSinceLast = quietSince;
-    const elapsed = Math.min(Math.max(0, Date.now() - quietSince), pauseMs);
-    timer = setTimeout(fire, pauseMs - elapsed);
+    const elapsed = Math.max(0, Date.now() - quietSince);
+    // Lines from one transcribed chunk arrive a few ms apart; let the rest of
+    // the chunk (maybe the answer) through before deciding.
+    timer = setTimeout(fire, Math.max(SETTLE_MS, pauseMs - elapsed));
   };
 
   return {

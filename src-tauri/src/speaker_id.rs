@@ -128,7 +128,10 @@ pub struct Extractor(sherpa_rs::speaker_id::EmbeddingExtractor);
 #[cfg(target_os = "macos")]
 impl Extractor {
     pub fn load(app: &AppHandle) -> Result<Self, String> {
-        let path = model_path(app)?;
+        Self::load_path(&model_path(app)?)
+    }
+
+    pub fn load_path(path: &std::path::Path) -> Result<Self, String> {
         if !path.exists() {
             return Err("Speaker model is not downloaded".to_string());
         }

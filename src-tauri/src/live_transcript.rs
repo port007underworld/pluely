@@ -95,12 +95,16 @@ struct Chunk {
 impl Track {
     /// Pull new audio and return any utterances that finished.
     fn pump(&mut self, buffer: &SystemAudioState, source: &'static str) -> Vec<Chunk> {
+        self.pump_at(buffer, source, now_ms())
+    }
+
+    /// `pump` with the capture time given (for replaying recordings).
+    fn pump_at(&mut self, buffer: &SystemAudioState, source: &'static str, captured_at: u64) -> Vec<Chunk> {
         let (samples, end) = buffer.samples_since(self.cursor);
         if end < self.cursor {
             *self = Track::default(); // capture restarted
         }
         self.cursor = end;
-        let captured_at = now_ms();
         self.pending.extend_from_slice(&samples);
 
         let mut chunks = Vec::new();
@@ -276,25 +280,6 @@ impl Deps {
     }
 
     /// Speaker label for a system-audio utterance, if separation is on and works.
-    fn speaker_for(&self, chunk: &Chunk, learn: bool) -> Option<String> {
-        if chunk.source != "system" || !self.separate_speakers() {
-            return None;
-        }
-        let mut extractor = self.live.extractor.lock().ok()?;
-        if extractor.is_none() {
-            match Extractor::load(&self.app) {
-                Ok(e) => *extractor = Some(e),
-                Err(e) => {
-                    tracing::warn!("Speaker separation unavailable: {}", e);
-                    return None;
-                }
-            }
-        }
-        let embedding = extractor.as_mut()?.embed(&chunk.samples).ok()?;
-        let seconds = chunk.samples.len() as f32 / SAMPLE_RATE as f32;
-        self.live.speakers.lock().ok()?.assign(embedding, seconds, learn)
-    }
-
     fn pump_all(&self) -> Vec<Chunk> {
         let mut chunks = Vec::new();
         if let Ok(mut track) = self.live.system.lock() {
@@ -320,21 +305,32 @@ impl Deps {
             let _guard = self.stt.whisper_lock.lock().map_err(|e| e.to_string())?;
             run_whisper(&ctx, &chunk.samples, &language, chunk.source)?
         };
-        let speaker = if segments.is_empty() {
-            None
+        let speakers = if chunk.source == "system" && self.separate_speakers() && !segments.is_empty() {
+            match (self.live.extractor.lock(), self.live.speakers.lock()) {
+                (Ok(mut extractor), Ok(mut clusters)) => {
+                    if extractor.is_none() {
+                        match Extractor::load(&self.app) {
+                            Ok(e) => *extractor = Some(e),
+                            Err(e) => tracing::warn!("Speaker separation unavailable: {}", e),
+                        }
+                    }
+                    match extractor.as_mut() {
+                        Some(extractor) => label_speakers(
+                            chunk,
+                            &segments,
+                            |samples| extractor.embed(samples).ok(),
+                            &mut clusters,
+                            learn_speaker,
+                        ),
+                        None => vec![None; segments.len()],
+                    }
+                }
+                _ => vec![None; segments.len()],
+            }
         } else {
-            self.speaker_for(chunk, learn_speaker)
+            vec![None; segments.len()]
         };
-        Ok(segments
-            .into_iter()
-            .map(|s| LiveSegment {
-                source: s.source,
-                start_ms: offset_to_ms(chunk.end_ms, s.start_offset),
-                end_ms: offset_to_ms(chunk.end_ms, s.end_offset),
-                text: s.text,
-                speaker: speaker.clone(),
-            })
-            .collect())
+        Ok(live_segments(chunk, segments, speakers))
     }
 
     /// Store new lines. Mic lines are held briefly and dropped if they turn
@@ -371,12 +367,7 @@ impl Deps {
         let mut ready = Vec::new();
         let mut keep = Vec::new();
         for (segment, release_at) in held {
-            let echo = system.iter().any(|s| {
-                segment.start_ms <= s.end_ms + ECHO_SLACK_MS
-                    && s.start_ms <= segment.end_ms + ECHO_SLACK_MS
-                    && looks_like_echo(&segment.text, &s.text)
-            });
-            if echo {
+            if is_echo(&segment, &system) {
                 continue;
             }
             if all || now >= release_at {
@@ -433,6 +424,66 @@ impl Deps {
             }
         }
     }
+}
+
+/// Whisper's segments for a chunk, placed on the wall clock.
+fn live_segments(chunk: &Chunk, segments: Vec<TranscriptSegment>, speakers: Vec<Option<String>>) -> Vec<LiveSegment> {
+    segments
+        .into_iter()
+        .zip(speakers)
+        .map(|(s, speaker)| LiveSegment {
+            source: s.source,
+            start_ms: offset_to_ms(chunk.end_ms, s.start_offset),
+            end_ms: offset_to_ms(chunk.end_ms, s.end_offset),
+            text: s.text,
+            speaker,
+        })
+        .collect()
+}
+
+/// Speaker label for each of a chunk's segments. People often reply within
+/// half a second, so one chunk can hold several turns; Whisper usually splits
+/// them into separate segments, so each is matched on its own audio. Short
+/// segments ("Mm-hmm") only get a label when they clearly match a known voice.
+fn label_speakers(
+    chunk: &Chunk,
+    segments: &[TranscriptSegment],
+    mut embed: impl FnMut(&[f32]) -> Option<Vec<f32>>,
+    clusters: &mut SpeakerClusters,
+    learn: bool,
+) -> Vec<Option<String>> {
+    const PAD_SECONDS: f32 = 0.1;
+    let len = chunk.samples.len();
+    let seconds = len as f32 / SAMPLE_RATE as f32;
+    if segments.len() == 1 {
+        return vec![embed(&chunk.samples).and_then(|e| clusters.assign(e, seconds, learn))];
+    }
+    segments
+        .iter()
+        .map(|s| {
+            let at = |offset: f32| {
+                let from_end = ((-offset).max(0.0) * SAMPLE_RATE as f32) as usize;
+                len.saturating_sub(from_end)
+            };
+            let from = at(s.start_offset + PAD_SECONDS);
+            let to = at(s.end_offset - PAD_SECONDS).max(from).min(len);
+            let samples = &chunk.samples[from.min(to)..to];
+            if samples.len() < SAMPLE_RATE / 2 {
+                return None;
+            }
+            let seconds = samples.len() as f32 / SAMPLE_RATE as f32;
+            embed(samples).and_then(|e| clusters.assign(e, seconds, learn))
+        })
+        .collect()
+}
+
+/// A mic line that overlaps a meeting-audio line in time and repeats its words.
+fn is_echo(mic: &LiveSegment, system: &[LiveSegment]) -> bool {
+    system.iter().any(|s| {
+        mic.start_ms <= s.end_ms + ECHO_SLACK_MS
+            && s.start_ms <= mic.end_ms + ECHO_SLACK_MS
+            && looks_like_echo(&mic.text, &s.text)
+    })
 }
 
 /// Seconds from `now` to `at` (negative for the past).
@@ -1025,3 +1076,7 @@ mod monologue_tests {
         assert_eq!(monologues(&ordered, true, 72_000), (30_000, 0));
     }
 }
+
+#[cfg(test)]
+#[path = "live_transcript_replay.rs"]
+mod replay;
