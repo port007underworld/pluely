@@ -28,6 +28,8 @@ export interface TranscriptionConfig {
   autoAnswerScreenshot: boolean;
   /** Silence after a question before answering, so a longer question isn't cut off. */
   autoAnswerDelayMs: number;
+  /** Don't auto-answer greetings, logistics and check-ins ("how are you?", "can you see my screen?"). */
+  autoAnswerSkipSmallTalk: boolean;
   /** Write meeting notes from the live transcript when Meeting mode is turned off. */
   meetingNotes: boolean;
 }
@@ -46,6 +48,7 @@ export const DEFAULT_TRANSCRIPTION_CONFIG: TranscriptionConfig = {
   autoAnswer: false,
   autoAnswerScreenshot: false,
   autoAnswerDelayMs: 2000,
+  autoAnswerSkipSmallTalk: true,
   meetingNotes: false,
 };
 
@@ -86,6 +89,7 @@ export const getTranscriptionConfig = (): TranscriptionConfig => {
       autoAnswerDelayMs: AUTO_ANSWER_DELAYS.includes(parsed.autoAnswerDelayMs)
         ? parsed.autoAnswerDelayMs
         : DEFAULT_TRANSCRIPTION_CONFIG.autoAnswerDelayMs,
+      autoAnswerSkipSmallTalk: parsed.autoAnswerSkipSmallTalk !== false,
       meetingNotes: parsed.meetingNotes === true,
     };
   } catch {

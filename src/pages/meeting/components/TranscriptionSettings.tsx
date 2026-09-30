@@ -645,6 +645,19 @@ export const TranscriptionSettings = () => {
                 {config.autoAnswer && (
                   <div className="flex items-start justify-between gap-3">
                     <p className="text-xs text-muted-foreground">
+                      Skip small talk and logistics (greetings, “can you hear me?”, “is now a good
+                      time?”, “does that make sense?”). Questions someone has already answered are
+                      always skipped.
+                    </p>
+                    <Switch
+                      checked={config.autoAnswerSkipSmallTalk}
+                      onCheckedChange={(autoAnswerSkipSmallTalk) => setConfig({ autoAnswerSkipSmallTalk })}
+                    />
+                  </div>
+                )}
+                {config.autoAnswer && (
+                  <div className="flex items-start justify-between gap-3">
+                    <p className="text-xs text-muted-foreground">
                       Include a screenshot (for questions about what's on screen)
                     </p>
                     <Switch

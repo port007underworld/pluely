@@ -435,6 +435,11 @@ impl Deps {
     }
 }
 
+/// Seconds from `now` to `at` (negative for the past).
+fn offset_seconds(at: u64, now: u64) -> f32 {
+    (at as i64 - now as i64) as f32 / 1000.0
+}
+
 fn offset_to_ms(end_ms: u64, offset_seconds: f32) -> u64 {
     let offset_ms = (-offset_seconds * 1000.0).max(0.0) as u64;
     end_ms.saturating_sub(offset_ms)
@@ -771,8 +776,10 @@ pub async fn live_transcript_get(
 
         let to_segment = |s: &LiveSegment| TranscriptSegment {
             source: s.source,
-            start_offset: (s.start_ms as f32 - now as f32) / 1000.0,
-            end_offset: (s.end_ms as f32 - now as f32) / 1000.0,
+            // Subtract as integers: epoch milliseconds don't fit in an f32
+            // (it rounds them to about two minutes), which made every offset ~0.
+            start_offset: offset_seconds(s.start_ms, now),
+            end_offset: offset_seconds(s.end_ms, now),
             text: s.text.clone(),
             speaker: s.speaker.clone(),
         };
@@ -990,6 +997,13 @@ mod tests {
 #[cfg(test)]
 mod monologue_tests {
     use super::*;
+
+    #[test]
+    fn offsets_keep_millisecond_precision_at_epoch_scale() {
+        let now = 1_790_753_546_450;
+        assert_eq!(offset_seconds(now - 42_500, now), -42.5);
+        assert_eq!(offset_seconds(now - 150, now), -0.15);
+    }
 
     fn seg(source: &'static str, start_ms: u64, end_ms: u64) -> LiveSegment {
         LiveSegment { source, start_ms, end_ms, text: String::new(), speaker: None }

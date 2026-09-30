@@ -625,6 +625,7 @@ export const useCompletion = () => {
       files,
       followUps = true,
       steps,
+      discardIf,
     }: {
       displayPrompt: string;
       userMessage: string;
@@ -635,6 +636,8 @@ export const useCompletion = () => {
       followUps?: boolean;
       /** Timings of the steps that led to this request, for Recent Requests. */
       steps?: { label: string; ms: number }[];
+      /** Answers to throw away instead of saving (the panel closes). */
+      discardIf?: (answer: string) => boolean;
     }) => {
       const resolved = resolveAIProvider(selectedAIProvider, allAiProviders);
       if ("error" in resolved) {
@@ -679,6 +682,10 @@ export const useCompletion = () => {
         }
 
         if (currentRequestIdRef.current !== requestId || signal.aborted) return;
+        if (discardIf?.(splitFollowUps(fullResponse).answer)) {
+          setState((prev) => ({ ...prev, isLoading: false, input: "", response: "" }));
+          return;
+        }
         setState((prev) => ({ ...prev, isLoading: false }));
         setTimeout(() => inputRef.current?.focus(), 100);
 
@@ -1087,6 +1094,8 @@ export const useCompletion = () => {
       audioBase64: audio?.audioBase64,
       files,
       steps,
+      // The prompt lets the model decline; don't keep or show those.
+      discardIf: (answer) => /^no answer needed\.?$/i.test(answer.trim()),
     });
   };
 
@@ -1101,6 +1110,8 @@ export const useCompletion = () => {
     if (!autoAnswerEnabled) return;
     const detector = createQuestionDetector({
       onQuestion: (question, endedAt) => void autoAnswerRef.current(question, endedAt),
+      onSkip: (question, reason) => console.info(`[auto-answer] skipped (${reason}): ${question}`),
+      skipSmallTalk: transcriptionConfig.autoAnswerSkipSmallTalk,
       pauseMs: transcriptionConfig.autoAnswerDelayMs,
     });
     let cancelled = false;
@@ -1111,9 +1122,12 @@ export const useCompletion = () => {
         else unlisteners.push(fn);
       });
     // Only the other participants' audio: the user's own questions aren't answered.
-    subscribe<{ source: string; text: string; endMs: number }>("live-transcript-segment", (segment) => {
-      if (segment.source === "system") detector.line(segment.text, segment.endMs);
-    });
+    subscribe<{ source: string; text: string; endMs: number; speaker?: string }>(
+      "live-transcript-segment",
+      (segment) => {
+        if (segment.source === "system") detector.line(segment.text, segment.endMs, segment.speaker);
+      }
+    );
     subscribe<{ source: string }>("live-transcript-partial", (partial) => {
       if (partial.source === "system") detector.speaking();
     });
@@ -1123,7 +1137,11 @@ export const useCompletion = () => {
       detector.dispose();
       unlisteners.forEach((fn) => fn());
     };
-  }, [autoAnswerEnabled, transcriptionConfig.autoAnswerDelayMs]);
+  }, [
+    autoAnswerEnabled,
+    transcriptionConfig.autoAnswerDelayMs,
+    transcriptionConfig.autoAnswerSkipSmallTalk,
+  ]);
 
   // Quick actions rework the last answer; the conversation history carries it.
   const [actionNotice, setActionNotice] = useState<string | null>(null);
