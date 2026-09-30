@@ -1,6 +1,3 @@
-const QUESTION_START =
-  /^(what|why|how|when|where|which|who|whose|can you|could you|would you|will you|do you|did you|have you|are you|were you|is there|are there|tell me|walk me through|talk me through|explain|describe|give me|share|what's|how's)\b/i;
-
 /** Openings that make a question even when transcription drops the "?". */
 const UNPUNCTUATED_QUESTION =
   /^(why\b|(how|what)('s| (is|are|was|were|do|does|did|would|could|should|will|can|might|about|if|happens))\b|(can|could|would|will|do|did|have) you\b|(is|are) there\b|(walk|talk) me through\b|tell me (about|how|why|what)\b|(explain|describe)\b)/i;
