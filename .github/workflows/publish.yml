@@ -7,7 +7,33 @@ on:
   workflow_dispatch: # "Run workflow" button on the Actions tab
 
 jobs:
+  # Pushes only build a release when the version was bumped: if a release for
+  # the version in tauri.conf.json already exists (draft or published), skip.
+  # "Run workflow" always builds.
+  check-version:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # needed to see draft releases
+    outputs:
+      release: ${{ steps.check.outputs.release }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          if gh release view "app-v$version" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            echo "app-v$version already exists; bump the version to release."
+            echo "release=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "No release for app-v$version yet; building it."
+            echo "release=true" >> "$GITHUB_OUTPUT"
+          fi
+
   publish-tauri:
+    needs: check-version
+    if: github.event_name == 'workflow_dispatch' || needs.check-version.outputs.release == 'true'
     permissions:
       contents: write
     strategy:
