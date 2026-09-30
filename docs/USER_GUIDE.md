@@ -196,6 +196,8 @@ When someone **else** in the meeting asks a question, Runningbord answers it aut
 
 > Each automatic answer is a normal AI request, so it costs the same as pressing the shortcut.
 
+> **How well does it work?** Tested on 20 recorded interviews, it sends about one request every 3 minutes; roughly 7 in 10 are questions worth answering. [What auto-answer can and can't do](AUTO_ANSWER.md) has the details and the known misses.
+
 ### Pinned facts
 Facts the AI should treat as true for this meeting, such as "Budget is $40k", "They use Go and Postgres" or "Decision by Friday".
 

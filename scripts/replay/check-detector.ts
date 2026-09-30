@@ -6,7 +6,11 @@
  *
  *   npm run test:detector
  */
-import { isSmallTalk, looksLikeQuestion } from "@/lib/functions/question-detect.function";
+import {
+  createQuestionDetector,
+  isSmallTalk,
+  looksLikeQuestion,
+} from "@/lib/functions/question-detect.function";
 
 /** Real questions a candidate would want help with. */
 const ANSWER = [
@@ -67,6 +71,16 @@ const ANSWER = [
   "Right, and in that case, how would you make sure there are no cycles?",
   "Is the time complexity of this approach correct?",
   "Is my understanding of the problem statement right?",
+  // Fresh interviews (Citadel, FAANG coding and system design)
+  "I am curious, how do you know that?",
+  "What is the probability that you end up drawing three acceptable pairs?",
+  "But what happens if a node in my server goes down?",
+  "Were you thinking of a no sequel or a sequel set up to store the records of the transactions?",
+  "What data base will you consider for this?",
+  "Now, what if after getting that information, it dies?",
+  "What is the minimum number of cars we will need?",
+  "Okay, so why don't you tell me a little bit about yourself?",
+  "What level of consistency are you targeting for these writes?",
 ];
 
 /** Lines that shouldn't cost an AI request. */
@@ -141,6 +155,14 @@ const SKIP = [
   "Yeah, so you tell me your experience first, how was it?",
   "So how do you think I was?",
   "I'm going to stop the timer. So first of all, how do you feel about this?",
+  // Fresh interviews
+  "No worries, any other questions?",
+  "Alright, anything else you want to test?",
+  "Yeah, how about you?",
+  "How do you think you did?",
+  "Any questions or comments from yourself?",
+  "So you are applying for L4, right?",
+  "Okay, that's good. And may I know what kind of level are you targeting?",
 ];
 
 const wouldAnswer = (line: string) => {
@@ -148,13 +170,32 @@ const wouldAnswer = (line: string) => {
   return questions.length > 0 && !questions.every(isSmallTalk);
 };
 
+/** After "let me give you my feedback", auto-answer stays quiet. */
+async function wrapUpScenario(): Promise<string[]> {
+  const answered: string[] = [];
+  const detector = createQuestionDetector({ onQuestion: (q) => answered.push(q), pauseMs: 20 });
+  const say = async (line: string) => {
+    detector.line(line, Date.now());
+    await new Promise((r) => setTimeout(r, 200));
+  };
+  await say("How would you shard the jobs table across regions?");
+  await say("Okay, let's stop here. Let me give you my feedback.");
+  await say("Why do I need reliability, or why do I need scalability for this?");
+  await say("What kind of monitoring do you mean for these jobs?");
+  detector.dispose();
+  return answered.length === 1 && answered[0].startsWith("How would you shard")
+    ? []
+    : [`wrap-up: expected only the first question answered, got ${JSON.stringify(answered)}`];
+}
+
 const failures = [
+  ...(await wrapUpScenario()),
   ...ANSWER.filter((q) => !wouldAnswer(q)).map((q) => `should answer: ${q}`),
   ...SKIP.filter(wouldAnswer).map((q) => `should skip:   ${q}`),
 ];
 if (failures.length) {
   console.error(failures.join("\n"));
-  console.error(`\n${failures.length} of ${ANSWER.length + SKIP.length} cases failed`);
+  console.error(`\n${failures.length} of ${ANSWER.length + SKIP.length + 1} checks failed`);
   process.exit(1);
 }
-console.log(`all ${ANSWER.length + SKIP.length} detector cases pass`);
+console.log(`all ${ANSWER.length + SKIP.length} detector cases and the wrap-up scenario pass`);

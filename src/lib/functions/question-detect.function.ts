@@ -63,7 +63,26 @@ const SMALL_TALK = [
   /\b(your|the) experience( first)?,? how was it$/,
   /^how do you think (i|it) (was|did|went)$/,
   /^(so )?(first of all,? )?how do you feel about (this|it|the interview|today)$/,
+  /^how do you think (you|it) (did|went|performed)\b/,
+  /^(and |so )?(how|what) about you$/,
+  /^(no worries,? )?any (other|more|further) (questions|thoughts|comments)( for me| from (you|yourself))?$/,
+  /^any (questions|comments) or (comments|questions)( from (you|yourself))?$/,
+  /^anything else (you want|you'd like|you would like) to (test|add|ask|cover|discuss|mention)\b/,
+  // Checking the candidate's level.
+  /^(are you|you are) (an? )?(l[3-7]|e[3-7]|senior|junior|staff|mid-level)\b/,
+  /\b(what|which)( kind of)? level (are you|you're|you are) (applying|interviewing|targeting|going)\b/,
 ];
+
+/**
+ * The interview is over and feedback begins ("Let me give you my feedback",
+ * "I'm going to stop the timer"). What follows is mostly rhetorical ("Why do I
+ * need reliability?"), so auto-answer stays quiet for WRAP_UP_MS.
+ */
+const WRAP_UP =
+  /\b(let me give you (my|some) feedback|give you (my|some) (feedback|thoughts)|(i'm|i am) (going to|gonna) stop the timer|stop the timer|(that's|that is) (the end of|all for) (the|our) (interview|session)|(so )?now (for|onto|on to) (the )?feedback|(my|some) feedback for you|(let's|let us) (wrap up|end) (the|our) (interview|session))\b/;
+const WRAP_UP_MS = 20 * 60_000;
+
+export type SkipReason = "answered" | "small talk" | "wrap-up";
 
 /** Minimum wait after a line, so the rest of its chunk arrives first. */
 const SETTLE_MS = 150;
@@ -139,8 +158,14 @@ const SELF_DIRECTED = [
   /^(is|was) (it|this|that) my\b/,
   /\b(or|and|but) (should|shall|can|do|could) i\b/,
   /^(is there )?anything (else )?i can\b/,
-  /^i('ll|'m|'d| will| am| think)\b/,
 ];
+
+/**
+ * Opens with a statement about the speaker ("I think the readability…?",
+ * "I'll just describe the API, but is this part fine?"). Not when the question
+ * is put to you: "I am curious, how do you know that?" still asks.
+ */
+const SPEAKER_STATEMENT = /^i('ll|'m|'d| will| am| think)\b/;
 
 /**
  * The same check-in when transcription drops the comma ("…if I am not wrong
@@ -157,6 +182,7 @@ export function isSmallTalk(question: string): boolean {
   const core = normalize(question);
   if (core.split(" ").filter(Boolean).length < MIN_QUESTION_WORDS) return true;
   if (SELF_DIRECTED.some((pattern) => pattern.test(core))) return true;
+  if (SPEAKER_STATEMENT.test(core) && !/\byou\b/.test(core)) return true;
   // Whisper often joins sentences with commas ("…from Jane Street, is this
   // Nolan?"), so also judge the last clause on its own.
   const clauses = question.split(/[,;]\s+/);
@@ -178,7 +204,7 @@ export interface QuestionDetectorOptions {
   /** Called with the question once the speaker has paused, and when they stopped speaking. */
   onQuestion: (question: string, endedAt: number) => void;
   /** Called instead when a question is dropped, with the reason (for logging). */
-  onSkip?: (question: string, reason: "answered" | "small talk") => void;
+  onSkip?: (question: string, reason: SkipReason) => void;
   /** Silence after the question before answering, so follow-on clauses are included. */
   pauseMs?: number;
   /** Safety cap against noisy audio: most answers in any 60 seconds. */
@@ -205,6 +231,8 @@ export function createQuestionDetector({
   let timer: ReturnType<typeof setTimeout> | undefined;
   let fired: number[] = [];
   let quietSinceLast = 0;
+  /** After the interview wraps up, stay quiet until this time. */
+  let wrapUpUntil = 0;
 
   const reset = () => {
     clearTimeout(timer);
@@ -214,7 +242,7 @@ export function createQuestionDetector({
     pendingSpeaker = undefined;
   };
 
-  const drop = (reason: "answered" | "small talk") => {
+  const drop = (reason: SkipReason) => {
     const question = pending.join(" ").trim();
     reset();
     if (question) onSkip?.(question, reason);
@@ -230,6 +258,7 @@ export function createQuestionDetector({
       return;
     }
     if (pending.length === 0) return;
+    if (now < wrapUpUntil) return drop("wrap-up");
     if (questions.every(isSmallTalk)) return drop("small talk");
     const question = pending.join(" ").trim();
     reset();
@@ -256,6 +285,7 @@ export function createQuestionDetector({
     line(text: string, endedAt = Date.now(), speaker?: string) {
       const parts = sentences(text);
       if (parts.length === 0) return;
+      if (WRAP_UP.test(normalize(text))) wrapUpUntil = Date.now() + WRAP_UP_MS;
       let lastQuestion = -1;
       parts.forEach((part, i) => {
         if (looksLikeQuestion(part)) lastQuestion = i;

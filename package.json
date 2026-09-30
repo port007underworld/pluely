@@ -39,7 +39,7 @@
     "preview": "vite preview",
     "tauri": "node scripts/tauri.mjs",
     "docs:screenshots": "node scripts/docs-screenshots/capture.mjs",
-    "test:detector": "esbuild scripts/replay/check-detector.ts --bundle --platform=node --alias:@=./src --log-level=error --outfile=node_modules/.cache/check-detector.cjs && node node_modules/.cache/check-detector.cjs"
+    "test:detector": "esbuild scripts/replay/check-detector.ts --bundle --platform=node --format=esm --alias:@=./src --log-level=error --outfile=node_modules/.cache/check-detector.mjs && node node_modules/.cache/check-detector.mjs"
   },
   "dependencies": {
     "@bany/curl-to-json": "^1.2.8",
