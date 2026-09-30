@@ -26,3 +26,8 @@ dist-ssr
 # Exported code-signing certificate and secrets (scripts/macos-signing-cert.sh --export-ci)
 signing/
 *.p12
+
+# Local handover notes
+docs/HANDOVER.md
+# Python bytecode from replay scripts
+__pycache__/
