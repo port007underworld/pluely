@@ -53,8 +53,12 @@ const ANSWER_START =
   /^(yes|yeah|yep|yup|yea|sure|no|nope|nah|of course|absolutely|definitely|certainly|sounds good|sounds great|great|perfect|awesome|okay|ok|alright|all right|got it|i am|i'm|i do|i can|i see|i did|i have|we are|we do|we can|hey|hi|hello|thanks|thank you|mm-hmm|uh-huh|good|fine|not bad|doing well)\b/;
 
 /** Words people start sentences with that don't change what's being asked. */
-const LEADING_FILLER =
-  /^((so|and|but|okay|ok|alright|all right|well|um|uh|erm|hmm|mmm?|mm-hmm|now|right|cool|great|perfect|awesome|interesting|got it|i see|sure|nice)[,.!]?\s+)+/i;
+/** Hesitations and backchannels however Whisper spells them: mm, mm-m, mhm, hmm, uh-huh, um, ah, oh. */
+const INTERJECTION = "(?:m+(?:[-–]?h*m+)*|h+m+|m+h+m+|u+h+(?:[-–]h+u+h+)?|u+m+|e+r+m*|a+h+|o+h+)";
+const LEADING_FILLER = new RegExp(
+  `^((so|and|but|okay|ok|alright|all right|well|now|right|cool|great|perfect|awesome|interesting|got it|i see|sure|nice|${INTERJECTION})[,.!]?\\s+)+`,
+  "i"
+);
 
 /** "Is this Nolan?" / "Am I speaking with Grace Lee?" (checked before lowercasing). */
 const WHO_IS_THIS = /^([Ii]s this|[Aa]m [Ii] (speaking|talking) (with|to)) [A-Z][a-z]+( [A-Z][a-z]+)?\??$/;

@@ -33,3 +33,19 @@ clock, and scores auto-answer against what was actually said.
          --alias:@=./src --outfile=/tmp/replay-detector.cjs
        node /tmp/replay-detector.cjs /tmp/replay/both-sides.lines.json \
          /tmp/replay/both-sides.truth.json 2000
+
+## Two people in one recording
+
+A recording of a call (a mock interview, say) has both people in one track,
+while the app hears the other person on the computer's audio and you on the
+microphone. Replay the whole recording once (step 2) to get speaker labels,
+then split it and replay the two tracks:
+
+    python3 scripts/replay/split_by_speaker.py rec.wav rec.lines.json /tmp/replay/rec \
+        [--you "Speaker 2"] [--echo 0.15]
+    REPLAY_SYSTEM=/tmp/replay/rec.system.wav REPLAY_MIC=/tmp/replay/rec.mic.wav \
+    REPLAY_OUT=/tmp/replay/rec.split.json cargo test replay_recording -- --ignored --nocapture
+
+By default "you" is the main voice other than the one asking the most
+questions. `--echo` leaks some of the other person into the mic, as with
+laptop speakers.
