@@ -154,7 +154,11 @@ Answers appear in a panel under the overlay.
 
 ## 6. Meeting features
 
-All of these are on the **Meeting** page of the dashboard.
+All of these are on the **Meeting** page of the dashboard, in four tabs:
+- **Before:** prepare for a meeting, and pin facts.
+- **During:** people and talk time.
+- **After:** meeting notes.
+- **Setup:** Meeting mode, transcription and auto-answer settings.
 
 ### Meeting mode
 Meeting mode lets Runningbord hear the meeting through your computer's audio output: Zoom, Meet, Teams, a browser tab, anything. Turn it on in the overlay or with **⌘⇧M**.

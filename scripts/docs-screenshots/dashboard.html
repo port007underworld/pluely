@@ -14,6 +14,9 @@
     <script src="./mocks.js"></script>
     <script>
       const section = new URLSearchParams(location.search).get("section") || "people";
+      // The Meeting page shows one tab at a time; open the section's tab.
+      const TAB_FOR = { "meeting-prep": "before", "pinned-facts": "before", people: "during", "talk-time": "during", "meeting-notes": "after", "auto-answer": "setup" };
+      localStorage.setItem("meeting_tab", TAB_FOR[section] || "before");
       history.replaceState(null, "", "/meeting");
 
       const INVITE = `Subject: Northwind x Acme - Technical & Commercial Discovery
