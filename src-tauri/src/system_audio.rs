@@ -36,6 +36,10 @@ pub struct SystemAudioState {
     /// Join handle for the capture thread (macOS only).
     #[allow(dead_code)]
     capture_handle: Mutex<Option<thread::JoinHandle<()>>>,
+    /// Held for the whole of a start or stop, so a stop can't land while a
+    /// start is still bringing capture up (capture would run while marked
+    /// stopped, dropping every sample).
+    control: tauri::async_runtime::Mutex<()>,
 }
 
 impl SystemAudioState {
@@ -56,6 +60,7 @@ impl SystemAudioState {
             written_samples: AtomicUsize::new(0),
             recording: AtomicBool::new(false),
             capture_handle: Mutex::new(None),
+            control: tauri::async_runtime::Mutex::new(()),
         }
     }
 
@@ -463,6 +468,7 @@ pub async fn system_audio_start(
     buffer_seconds: u32,
     state: tauri::State<'_, Arc<SystemAudioState>>,
 ) -> Result<(), String> {
+    let _control = state.control.lock().await;
     // Ring capacity is always MAX_BUFFER_SECONDS, so a new window applies live.
     state.set_buffer_seconds(buffer_seconds);
     if state.recording.load(Ordering::SeqCst) {
@@ -497,6 +503,7 @@ pub async fn system_audio_start(
 /// Stop the system audio daemon.
 #[tauri::command]
 pub async fn system_audio_stop(state: tauri::State<'_, Arc<SystemAudioState>>) -> Result<(), String> {
+    let _control = state.control.lock().await;
     state.recording.store(false, Ordering::SeqCst);
     #[cfg(target_os = "macos")]
     {

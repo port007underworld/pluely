@@ -27,7 +27,7 @@ import {
 import { IContextType, ScreenshotConfig, SystemAudioDaemonConfig, TYPE_PROVIDER } from "@/types";
 import curl2Json from "@bany/curl-to-json";
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   ReactNode,
@@ -69,6 +69,39 @@ const validateAndProcessCurlProviders = (
     console.warn(`Failed to parse custom ${providerType} providers`, e);
     return [];
   }
+};
+
+const readSystemAudioDaemonConfig = (): SystemAudioDaemonConfig => {
+  try {
+    const parsed = JSON.parse(safeLocalStorage.getItem(STORAGE_KEYS.SYSTEM_AUDIO_DAEMON_CONFIG) ?? "null");
+    if (parsed && typeof parsed === "object") {
+      return {
+        enabled: Boolean(parsed.enabled),
+        bufferSeconds:
+          typeof parsed.bufferSeconds === "number" && parsed.bufferSeconds >= 5 && parsed.bufferSeconds <= 300
+            ? parsed.bufferSeconds
+            : 30,
+      };
+    }
+  } catch (err) {
+    console.warn("Failed to parse system audio daemon config", err);
+  }
+  return { enabled: false, bufferSeconds: 30 };
+};
+
+/**
+ * Audio capture, mic capture and live transcription are started and stopped
+ * by the overlay window only; the dashboard shares the setting through
+ * storage. With both windows sending start/stop, one window's stop could land
+ * after the other's start and leave capture off while Meeting mode shows on.
+ */
+const drivesAudio = () => getCurrentWindow().label === "main";
+
+/** Run capture commands one after another, never overlapping. */
+let audioCommands: Promise<unknown> = Promise.resolve();
+const inOrder = (command: () => Promise<unknown>) => {
+  audioCommands = audioCommands.then(command, command);
+  return audioCommands;
 };
 
 // Create the context
@@ -113,11 +146,10 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
       compressionMaxDimension: 1600,
     });
 
+  // Read the saved setting up front: starting from "off" and loading it a
+  // moment later sent a stop right after launch that could cancel capture.
   const [systemAudioDaemonConfig, setSystemAudioDaemonConfig] =
-    useState<SystemAudioDaemonConfig>({
-      enabled: false,
-      bufferSeconds: 30,
-    });
+    useState<SystemAudioDaemonConfig>(readSystemAudioDaemonConfig);
 
   // Unified Customizable State (initialize from persisted storage)
   const [customizable, setCustomizable] = useState<CustomizableState>(
@@ -236,27 +268,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     }
 
     // Load system audio daemon configuration
-    const savedSystemAudioConfig = safeLocalStorage.getItem(
-      STORAGE_KEYS.SYSTEM_AUDIO_DAEMON_CONFIG
-    );
-    if (savedSystemAudioConfig) {
-      try {
-        const parsed = JSON.parse(savedSystemAudioConfig);
-        if (typeof parsed === "object" && parsed !== null) {
-          setSystemAudioDaemonConfig({
-            enabled: Boolean(parsed.enabled),
-            bufferSeconds:
-              typeof parsed.bufferSeconds === "number" &&
-              parsed.bufferSeconds >= 5 &&
-              parsed.bufferSeconds <= 300
-                ? parsed.bufferSeconds
-                : 30,
-          });
-        }
-      } catch (err) {
-        console.warn("Failed to parse system audio daemon config", err);
-      }
-    }
+    setSystemAudioDaemonConfig(readSystemAudioDaemonConfig());
 
     // Ensure we sync persisted "customizable" settings into state
     try {
@@ -479,7 +491,9 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
   // Apply system audio daemon to backend (start/stop)
   const [systemAudioError, setSystemAudioError] = useState<string | null>(null);
   useEffect(() => {
-    const apply = async () => {
+    if (!drivesAudio()) return;
+    inOrder(async () => {
+      let error: string | null = null;
       try {
         if (systemAudioDaemonConfig.enabled) {
           await invoke("system_audio_start", {
@@ -488,14 +502,26 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         } else {
           await invoke("system_audio_stop");
         }
-        setSystemAudioError(null);
       } catch (e) {
         console.warn("System audio daemon sync failed:", e);
-        setSystemAudioError(String(e));
+        error = String(e);
       }
-    };
-    apply();
+      setSystemAudioError(error);
+      // Let the dashboard show the same state.
+      emit("system-audio-status", { error }).catch(() => {});
+    });
   }, [systemAudioDaemonConfig.enabled, systemAudioDaemonConfig.bufferSeconds]);
+
+  // The dashboard hears about capture errors from the overlay.
+  useEffect(() => {
+    if (drivesAudio()) return;
+    const unlisten = listen<{ error: string | null }>("system-audio-status", ({ payload }) =>
+      setSystemAudioError(payload.error)
+    );
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, []);
 
   // The mic buffer follows the system audio daemon, when the user opted in.
   const [transcriptionConfig] = useTranscriptionConfig();
@@ -504,10 +530,13 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     transcriptionConfig.captureMic &&
     transcriptionConfig.engine !== "raw";
   useEffect(() => {
-    const command = captureMic
-      ? invoke("mic_audio_start", { bufferSeconds: systemAudioDaemonConfig.bufferSeconds })
-      : invoke("mic_audio_stop");
-    command.catch((e) => console.warn("Microphone capture sync failed:", e));
+    if (!drivesAudio()) return;
+    inOrder(() =>
+      (captureMic
+        ? invoke("mic_audio_start", { bufferSeconds: systemAudioDaemonConfig.bufferSeconds })
+        : invoke("mic_audio_stop")
+      ).catch((e) => console.warn("Microphone capture sync failed:", e))
+    );
   }, [captureMic, systemAudioDaemonConfig.bufferSeconds]);
 
   // Live background transcription follows the daemon when the local engine is used.
@@ -516,14 +545,17 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     transcriptionConfig.engine === "local" &&
     transcriptionConfig.live;
   useEffect(() => {
-    const command = liveTranscription
-      ? invoke("live_transcript_start", {
-          modelId: transcriptionConfig.localModel,
-          language: transcriptionConfig.language,
-          separateSpeakers: transcriptionConfig.separateSpeakers,
-        })
-      : invoke("live_transcript_stop");
-    command.catch((e) => console.warn("Live transcription sync failed:", e));
+    if (!drivesAudio()) return;
+    inOrder(() =>
+      (liveTranscription
+        ? invoke("live_transcript_start", {
+            modelId: transcriptionConfig.localModel,
+            language: transcriptionConfig.language,
+            separateSpeakers: transcriptionConfig.separateSpeakers,
+          })
+        : invoke("live_transcript_stop")
+      ).catch((e) => console.warn("Live transcription sync failed:", e))
+    );
   }, [
     liveTranscription,
     transcriptionConfig.localModel,
