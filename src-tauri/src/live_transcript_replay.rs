@@ -6,6 +6,9 @@
 //!   REPLAY_SYSTEM=meeting.wav [REPLAY_MIC=mic.wav] [REPLAY_OUT=lines.json] \
 //!     cargo test replay_recording -- --ignored --nocapture
 //!
+//! REPLAY_EMBEDDINGS=path also writes each voice embedding with its time
+//! range, for tuning speaker separation offline.
+//!
 //! WAVs must be 16 kHz mono 16-bit PCM. The Whisper model defaults to the
 //! app's base.en; REPLAY_MODEL overrides it. Speaker separation runs when the
 //! speaker model is downloaded (macOS).
@@ -96,8 +99,9 @@ fn replay_recording() {
     let (mut system_track, mut mic_track) = (Track::default(), Track::default());
 
     let mut committed: Vec<LiveSegment> = Vec::new();
-    let mut held: Vec<(LiveSegment, u64, u128)> = Vec::new();
+    let mut held: Vec<(LiveSegment, u128)> = Vec::new();
     let mut lines: Vec<ReplayLine> = Vec::new();
+    let mut embeddings: Vec<(f32, f32, Vec<f32>)> = Vec::new();
     let rel = |ms: u64| (ms.saturating_sub(START_MS)) as f32 / 1000.0;
     let mut record = |segment: &LiveSegment, arrives: u64, whisper_ms: u128, lines: &mut Vec<ReplayLine>| {
         lines.push(ReplayLine {
@@ -133,28 +137,43 @@ fn replay_recording() {
             let started = Instant::now();
             let segments = run_whisper(&ctx, &chunk.samples, "en", chunk.source).expect("whisper");
             let whisper_ms = started.elapsed().as_millis();
+            let chunk_start = rel(chunk.end_ms) - chunk.samples.len() as f32 / SAMPLE_RATE as f32;
             let labels = match extractor.as_mut() {
-                Some(extractor) if chunk.source == "system" && !segments.is_empty() => {
-                    label_speakers(&chunk, &segments, |s| extractor.embed(s).ok(), &mut speakers, true)
-                }
+                Some(extractor) if chunk.source == "system" && !segments.is_empty() => label_speakers(
+                    &chunk,
+                    &segments,
+                    |samples| {
+                        let embedding = extractor.embed(samples).ok();
+                        if let Some(e) = &embedding {
+                            // Where these samples sit in the recording, for REPLAY_EMBEDDINGS.
+                            let offset = samples.as_ptr() as usize - chunk.samples.as_ptr() as usize;
+                            let start = chunk_start + (offset / 4) as f32 / SAMPLE_RATE as f32;
+                            embeddings.push((start, start + samples.len() as f32 / SAMPLE_RATE as f32, e.clone()));
+                        }
+                        embedding
+                    },
+                    &mut speakers,
+                    true,
+                ),
                 _ => vec![None; segments.len()],
             };
             for segment in live_segments(&chunk, segments, labels) {
                 if segment.source == "mic" {
-                    held.push((segment, now + ECHO_HOLD_MS, whisper_ms));
+                    held.push((segment, whisper_ms));
                 } else {
                     record(&segment, now, whisper_ms, &mut lines);
                     committed.push(segment);
                 }
             }
         }
-        // Mic lines: drop echo, release after the hold.
-        held.retain(|(segment, release_at, whisper_ms)| {
+        // Mic lines: drop echo, release once the meeting audio has caught up.
+        let settled = system_track.settled_until();
+        held.retain(|(segment, whisper_ms)| {
             if is_echo(segment, &committed) {
                 eprintln!("  (echo dropped) {}", segment.text);
                 return false;
             }
-            if now >= *release_at {
+            if echo_check_done(segment, settled, now) {
                 record(segment, now, *whisper_ms, &mut lines);
                 return false;
             }
@@ -173,6 +192,10 @@ fn replay_recording() {
             l.speaker.as_deref().unwrap_or(if l.source == "mic" { "You" } else { "Them" }),
             l.text
         );
+    }
+    if let Ok(out) = std::env::var("REPLAY_EMBEDDINGS") {
+        std::fs::write(&out, serde_json::to_string(&embeddings).unwrap()).unwrap();
+        eprintln!("wrote {} embeddings to {out}", embeddings.len());
     }
     if let Ok(out) = std::env::var("REPLAY_OUT") {
         std::fs::write(&out, serde_json::to_string_pretty(&lines).unwrap()).unwrap();

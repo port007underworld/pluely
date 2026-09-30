@@ -424,18 +424,49 @@ fn words(text: &str) -> std::collections::HashSet<String> {
         .collect()
 }
 
+/// Whether a mic line and a meeting-audio line (times in seconds) happen at
+/// the same time, as echo does. Someone repeating what was just said comes
+/// after it, not during it; line timestamps are approximate, hence the tolerance.
+pub(crate) fn overlaps_like_echo(mic: (f64, f64), system: (f64, f64)) -> bool {
+    const TOLERANCE: f64 = 0.5;
+    let overlap = mic.1.min(system.1) - mic.0.max(system.0);
+    overlap + TOLERANCE >= 0.5 * (mic.1 - mic.0)
+}
+
+/// Words too common to tell two lines apart ("Yes, now is great" answering
+/// "Is now still a good time?" shares "now" and "is" but isn't an echo).
+const COMMON_WORDS: &[&str] = &[
+    "a", "an", "the", "and", "or", "but", "so", "if", "then", "to", "of", "in", "on", "at", "for",
+    "with", "from", "by", "as", "is", "are", "was", "were", "be", "been", "am", "i", "im", "you",
+    "youre", "he", "she", "we", "they", "it", "its", "this", "that", "these", "those", "my", "your",
+    "our", "their", "me", "us", "them", "do", "does", "did", "have", "has", "had", "will", "would",
+    "can", "could", "should", "just", "like", "yeah", "yes", "no", "not", "now", "okay", "ok", "um",
+    "uh", "well", "really", "very", "what", "how", "why", "when", "where", "which", "who", "there",
+    "here", "all", "any", "some", "about", "up", "out", "get", "got", "go", "know", "think", "right",
+    "sure", "oh", "great", "cool", "good", "thats", "dont", "ill", "id", "lets", "kind",
+];
+
 /// Whether a mic line is the speakers heard through the mic (no headphones):
-/// most of its words were also said on the system side. Echo is often
-/// transcribed partially, so this compares against the shorter of the two.
+/// most of its meaningful words were also said on the system side. Echo is
+/// often transcribed partially, so this compares against the shorter line.
 pub(crate) fn looks_like_echo(mic_text: &str, system_text: &str) -> bool {
     let mw = words(mic_text);
     if mw.is_empty() {
         return true;
     }
-    let sw = words(system_text);
-    let shared = mw.intersection(&sw).count();
-    let smaller = mw.len().min(sw.len()).max(1);
-    shared >= 1 && shared as f32 / smaller as f32 >= 0.5
+    let content = |w: std::collections::HashSet<String>| -> std::collections::HashSet<String> {
+        w.into_iter().filter(|w| !COMMON_WORDS.contains(&w.as_str())).collect()
+    };
+    let mc = content(mw);
+    let sc = content(words(system_text));
+    // Nothing distinctive to compare ("Yeah, okay."): keep it.
+    if mc.is_empty() {
+        return false;
+    }
+    let shared = mc.intersection(&sc).count();
+    let smaller = mc.len().min(sc.len()).max(1);
+    let needed = if mc.len() == 1 { 1 } else { 2 };
+    shared >= needed && shared as f32 / smaller as f32 >= 0.6
 }
 
 /// Without headphones the mic hears the speakers, so "You" would repeat what
@@ -444,13 +475,13 @@ pub(crate) fn remove_echo(
     mic: Vec<TranscriptSegment>,
     system: &[TranscriptSegment],
 ) -> Vec<TranscriptSegment> {
-    const SLACK_SECONDS: f32 = 1.5;
     mic.into_iter()
         .filter(|m| {
             !system.iter().any(|s| {
-                m.start_offset <= s.end_offset + SLACK_SECONDS
-                    && s.start_offset <= m.end_offset + SLACK_SECONDS
-                    && looks_like_echo(&m.text, &s.text)
+                overlaps_like_echo(
+                    (m.start_offset as f64, m.end_offset as f64),
+                    (s.start_offset as f64, s.end_offset as f64),
+                ) && looks_like_echo(&m.text, &s.text)
             }) && !words(&m.text).is_empty()
         })
         .collect()
@@ -635,6 +666,26 @@ mod tests {
         let kept = remove_echo(mic, &system);
         assert_eq!(kept.len(), 1);
         assert_eq!(kept[0].text, "Sure, it starts with a queue.");
+    }
+
+    #[test]
+    fn repeating_someone_right_after_them_is_not_echo() {
+        // Real case: two people introducing themselves with the same sentence.
+        let system = vec![seg("system", -20.0, -16.0, "I've been here for about two and a half years.")];
+        let mic = vec![seg("mic", -24.0, -20.2, "I've been here for about six and a half years.")];
+        assert_eq!(remove_echo(mic, &system).len(), 1);
+    }
+
+    #[test]
+    fn a_reply_repeating_common_words_is_not_echo() {
+        // Real case: answering "Is now still a good time for you?".
+        assert!(!looks_like_echo("Yes, now is great.", "Awesome, is now still a good time for you?"));
+        assert!(!looks_like_echo("Yeah, okay.", "Okay, so what do you think?"));
+        assert!(looks_like_echo(
+            "So Parsh Fax is going to take that list of facts.",
+            "Parsh Facts is going to take that list of facts and like return a table."
+        ));
+        assert!(looks_like_echo("clear, readable implementation.", "I'd like you to focus on clear readable implementation."));
     }
 
     #[test]

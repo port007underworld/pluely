@@ -181,7 +181,8 @@ When someone **else** in the meeting asks a question, Runningbord answers it aut
 - If a new question comes in while an answer is still being written, it's answered straight after.
 - It **doesn't spend a request on questions that don't need one**:
   - questions someone already answered: a reply like "Yes, I am" follows, or a different voice speaks next;
-  - small talk and logistics: "How are you?", "Is this Nolan?", "Can you hear me?", "Is now a good time?", "Can you see my screen?", "Does that make sense?".
+  - small talk and logistics: "How are you?", "Is this Nolan?", "Can you hear me?", "Is now a good time?", "Can you see my screen?", "Does that make sense?";
+  - check-ins that are really statements: "…so we use the edge class there, right?", "Is that what you were thinking?".
 - If the AI still decides there's nothing to answer, the panel closes quietly and nothing is saved.
 - It won't overwrite something you're typing.
 - Optional: **Include a screenshot**, for questions about what's on screen.

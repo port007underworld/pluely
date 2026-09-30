@@ -1,6 +1,10 @@
 const QUESTION_START =
   /^(what|why|how|when|where|which|who|whose|can you|could you|would you|will you|do you|did you|have you|are you|were you|is there|are there|tell me|walk me through|talk me through|explain|describe|give me|share|what's|how's)\b/i;
 
+/** Openings that make a question even when transcription drops the "?". */
+const UNPUNCTUATED_QUESTION =
+  /^(why\b|(how|what)('s| (is|are|was|were|do|does|did|would|could|should|will|can|might|about|if|happens))\b|(can|could|would|will|do|did|have) you\b|(is|are) there\b|(walk|talk) me through\b|tell me (about|how|why|what)\b|(explain|describe)\b)/i;
+
 /** Filler that ends in "?" but doesn't need an answer. */
 const NOT_A_QUESTION =
   /^(right|okay|ok|yeah|yes|no|really|you know|make sense|does that make sense|can you hear me|am i audible|is that clear|any questions|sorry|hello|hi|what)\??$/i;
@@ -37,7 +41,11 @@ const SMALL_TALK = [
   /^(why don't|what if) (i|we) (go ahead|start|begin|just|read|share|send|jump|kick)\b/,
   /^(mind if|do you mind if) i\b/,
   // Confirmations and check-ins.
-  /^(does|did) (that|this|it) (make sense|sound (good|ok|okay|right|fair)|work( for you)?)$/,
+  /^(does|did) (that|this|it) (make sense|sound (good|ok|okay|right|fair|reasonable)|work)( to you| for you)?$/,
+  /^(is|was) (that|this) what you (were thinking|meant|mean|had in mind|wanted)( of)?$/,
+  /^(do|did) you (have )?any (other |more |further )?(questions|thoughts)( for me| so far| about (that|this|anything))?$/,
+  /^(but )?otherwise,? (do you have )?any (questions|thoughts)\b/,
+  /^(like )?(a|an|the) what$/,
   /^(sound|sounds) (good|ok|okay|right|fair)$/,
   /^(is that|that) (ok|okay|alright|fine|clear|cool)( with you)?$/,
   /^any (questions|thoughts)( so far| before we (start|begin|move on))?$/,
@@ -82,18 +90,29 @@ const sentences = (text: string) =>
 
 /** Whether a finished transcript line reads like a question worth answering. */
 export function looksLikeQuestion(text: string): boolean {
-  const line = text.trim().replace(/^[-–—\s]+/, "");
+  const line = text.trim().replace(/^[-–—"'\s]+/, "");
   const words = line.split(/\s+/).filter(Boolean);
   if (words.length < 3 || NOT_A_QUESTION.test(line)) return false;
   if (line.endsWith("?")) return true;
-  // Transcription often drops the "?"; a question word after any filler
-  // ("Mmm, interesting, why a…") still marks a question.
+  // Transcription often drops the "?", so a clear question opening still
+  // counts, even after filler ("Mmm, interesting, why a…"). Only at the start
+  // of a sentence: a line cut mid-sentence starts in lower case ("how to
+  // keep track of…"), and "when"/"where" open ordinary statements too.
+  if (!/^[A-Z]/.test(line)) return false;
   const core = line.replace(LEADING_FILLER, "");
-  return QUESTION_START.test(core) && core.split(/\s+/).length >= 5;
+  return UNPUNCTUATED_QUESTION.test(core) && core.split(/\s+/).length >= 5;
 }
+
+/**
+ * A statement with a confirming tag ("…use the edge class there, right?",
+ * "…the running product, does it?"): the speaker is checking, not asking.
+ */
+const TAG_QUESTION =
+  /,\s*(right|correct|yeah|yes|no|ok|okay|you know|isn't it|is it|doesn't it|does it|don't you|do you|didn't it|did it|won't it|wouldn't it|can't you|aren't you|isn't that right|am i right)\s*\?\s*$/i;
 
 /** Greetings, logistics and check-ins that don't need a prepared answer. */
 export function isSmallTalk(question: string): boolean {
+  if (TAG_QUESTION.test(question.trim())) return true;
   // Whisper often joins sentences with commas ("…from Jane Street, is this
   // Nolan?"), so also judge the last clause on its own.
   const clauses = question.split(/[,;]\s+/);

@@ -56,11 +56,18 @@ pub async fn speaker_model_delete(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-/// Same voice across utterances scores ~0.9; different voices ~0.4-0.7.
-const SAME_SPEAKER: f32 = 0.75;
+/// Measured on a real call: the same voice scores ~0.84 against its own centroid
+/// (5th percentile 0.68), a different voice ~0.53 (95th percentile 0.65).
+const SAME_SPEAKER: f32 = 0.65;
 /// Short utterances give noisy embeddings: only attach them to a clear match.
-const SHORT_MATCH: f32 = 0.65;
+const SHORT_MATCH: f32 = 0.55;
 const MIN_RELIABLE_SECONDS: f32 = 1.5;
+/// A voice that matches nobody becomes a new speaker only after this many
+/// matching utterances. One-off odd audio (a laugh, music, a bad line) would
+/// otherwise start a new "Speaker N" each time; tuned on a real interview
+/// recording, where it cut two people from eight labels to three.
+const CONFIRM_UTTERANCES: usize = 3;
+const MAX_CANDIDATES: usize = 6;
 const MAX_SPEAKERS: usize = 8;
 
 fn normalize(v: &mut [f32]) {
@@ -74,10 +81,42 @@ fn dot(a: &[f32], b: &[f32]) -> f32 {
     a.iter().zip(b).map(|(x, y)| x * y).sum()
 }
 
-/// Online clustering over normalized embeddings (running-mean centroids).
+/// Running-mean centroid of normalized embeddings.
+struct Cluster {
+    centroid: Vec<f32>,
+    count: usize,
+}
+
+impl Cluster {
+    fn new(embedding: Vec<f32>) -> Self {
+        Self { centroid: embedding, count: 1 }
+    }
+
+    fn add(&mut self, embedding: &[f32]) {
+        let n = self.count as f32;
+        self.centroid
+            .iter_mut()
+            .zip(embedding)
+            .for_each(|(c, e)| *c = (*c * n + e) / (n + 1.0));
+        normalize(&mut self.centroid);
+        self.count += 1;
+    }
+}
+
+fn best_match(clusters: &[Cluster], embedding: &[f32]) -> Option<(usize, f32)> {
+    clusters
+        .iter()
+        .enumerate()
+        .map(|(i, c)| (i, dot(&c.centroid, embedding)))
+        .max_by(|a, b| a.1.total_cmp(&b.1))
+}
+
+/// Online clustering of voices into "Speaker 1", "Speaker 2"...
 #[derive(Default)]
 pub struct SpeakerClusters {
-    centroids: Vec<(Vec<f32>, usize)>,
+    speakers: Vec<Cluster>,
+    /// Voices heard but not (yet) confirmed as a new speaker.
+    candidates: Vec<Cluster>,
 }
 
 impl SpeakerClusters {
@@ -85,40 +124,48 @@ impl SpeakerClusters {
     /// (false for provisional, still-in-progress audio).
     pub fn assign(&mut self, mut embedding: Vec<f32>, seconds: f32, learn: bool) -> Option<String> {
         normalize(&mut embedding);
-        let best = self
-            .centroids
-            .iter()
-            .enumerate()
-            .map(|(i, (c, _))| (i, dot(c, &embedding)))
-            .max_by(|a, b| a.1.total_cmp(&b.1));
-
         let reliable = seconds >= MIN_RELIABLE_SECONDS;
+        let label = |i: usize| Some(format!("Speaker {}", i + 1));
+
         let threshold = if reliable { SAME_SPEAKER } else { SHORT_MATCH };
-        match best {
-            Some((i, score)) if score >= threshold => {
+        if let Some((i, score)) = best_match(&self.speakers, &embedding) {
+            if score >= threshold {
                 if learn && reliable {
-                    let (centroid, count) = &mut self.centroids[i];
-                    let n = *count as f32;
-                    centroid
-                        .iter_mut()
-                        .zip(&embedding)
-                        .for_each(|(c, e)| *c = (*c * n + e) / (n + 1.0));
-                    normalize(centroid);
-                    *count += 1;
+                    self.speakers[i].add(&embedding);
                 }
-                Some(format!("Speaker {}", i + 1))
+                return label(i);
             }
-            _ if learn && reliable && self.centroids.len() < MAX_SPEAKERS => {
-                self.centroids.push((embedding, 1));
-                Some(format!("Speaker {}", self.centroids.len()))
-            }
-            // Too short to judge, or too many voices: fall back to the generic label.
-            _ => None,
         }
+        // Too short to judge a new voice by, or just a preview.
+        if !(learn && reliable) {
+            return None;
+        }
+        if self.speakers.is_empty() {
+            self.speakers.push(Cluster::new(embedding));
+            return label(0);
+        }
+        match best_match(&self.candidates, &embedding) {
+            Some((i, score)) if score >= SAME_SPEAKER => {
+                self.candidates[i].add(&embedding);
+                if self.candidates[i].count >= CONFIRM_UTTERANCES && self.speakers.len() < MAX_SPEAKERS {
+                    self.speakers.push(self.candidates.remove(i));
+                    return label(self.speakers.len() - 1);
+                }
+            }
+            _ => {
+                self.candidates.push(Cluster::new(embedding));
+                if self.candidates.len() > MAX_CANDIDATES {
+                    self.candidates.remove(0);
+                }
+            }
+        }
+        // Not attributed until the voice is confirmed.
+        None
     }
 
     pub fn reset(&mut self) {
-        self.centroids.clear();
+        self.speakers.clear();
+        self.candidates.clear();
     }
 }
 
@@ -179,8 +226,23 @@ mod tests {
         let mut c = SpeakerClusters::default();
         assert_eq!(c.assign(voice(0.0, 0.0), 3.0, true).as_deref(), Some("Speaker 1"));
         assert_eq!(c.assign(voice(0.0, 0.05), 3.0, true).as_deref(), Some("Speaker 1"));
-        assert_eq!(c.assign(voice(5.0, 0.0), 3.0, true).as_deref(), Some("Speaker 2"));
+        // A new voice is only named once it's been heard a few times.
+        assert_eq!(c.assign(voice(5.0, 0.0), 3.0, true), None);
+        assert_eq!(c.assign(voice(5.0, 0.03), 3.0, true), None);
         assert_eq!(c.assign(voice(5.0, 0.05), 3.0, true).as_deref(), Some("Speaker 2"));
+        assert_eq!(c.assign(voice(5.0, 0.02), 3.0, true).as_deref(), Some("Speaker 2"));
+        assert_eq!(c.assign(voice(0.0, 0.02), 3.0, true).as_deref(), Some("Speaker 1"));
+    }
+
+    #[test]
+    fn a_one_off_voice_never_becomes_a_speaker() {
+        let mut c = SpeakerClusters::default();
+        assert_eq!(c.assign(voice(0.0, 0.0), 3.0, true).as_deref(), Some("Speaker 1"));
+        assert_eq!(c.assign(voice(9.0, 0.0), 3.0, true), None);
+        for _ in 0..5 {
+            assert_eq!(c.assign(voice(0.0, 0.03), 3.0, true).as_deref(), Some("Speaker 1"));
+        }
+        assert_eq!(c.speakers.len(), 1);
     }
 
     #[test]
@@ -188,7 +250,7 @@ mod tests {
         let mut c = SpeakerClusters::default();
         assert_eq!(c.assign(voice(0.0, 0.0), 0.8, true), None);
         assert_eq!(c.assign(voice(0.0, 0.0), 3.0, false), None);
-        assert!(c.centroids.is_empty());
+        assert!(c.speakers.is_empty() && c.candidates.is_empty());
     }
 
     /// Real voices: WHISPER_TEST_DIR with spk.onnx and a1/a2 (voice A), b1/b2 (voice B), c1 (voice C).

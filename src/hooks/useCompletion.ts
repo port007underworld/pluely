@@ -29,6 +29,7 @@ import {
   captureFullScreen,
   createQuestionDetector,
   pinFact,
+  speakerDisplayName,
   clearPinnedFacts,
   splitFollowUps,
   FOLLOW_UP_INSTRUCTIONS,
@@ -1124,7 +1125,11 @@ export const useCompletion = () => {
     subscribe<{ source: string; text: string; endMs: number; speaker?: string }>(
       "live-transcript-segment",
       (segment) => {
-        if (segment.source === "system") detector.line(segment.text, segment.endMs, segment.speaker);
+        if (segment.source !== "system") return;
+        // Compare people by the name the user gave them, so two voice labels
+        // named the same (one person split in two) count as one speaker.
+        const speaker = segment.speaker ? speakerDisplayName(segment.speaker) : undefined;
+        detector.line(segment.text, segment.endMs, speaker);
       }
     );
     subscribe<{ source: string }>("live-transcript-partial", (partial) => {

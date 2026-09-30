@@ -4,7 +4,7 @@
 //! reads the stored transcript plus the utterance still in progress.
 
 use crate::local_stt::{
-    context_for, looks_like_echo, remove_echo, run_whisper, spec, LocalSttState, TranscriptResult,
+    context_for, looks_like_echo, overlaps_like_echo, remove_echo, run_whisper, spec, LocalSttState, TranscriptResult,
     TranscriptSegment,
 };
 use crate::mic_audio::MicAudioState;
@@ -38,10 +38,13 @@ const MAX_UTTERANCE: usize = SAMPLE_RATE * 10;
 const MIN_SPEECH: usize = SAMPLE_RATE * 3 / 10;
 /// The mic hears typing and desk bumps, so it needs more speech to count.
 const MIN_MIC_SPEECH: usize = SAMPLE_RATE / 2;
-/// How long a mic line waits for the matching meeting-audio line, so echo of
-/// the speakers (no headphones) can be recognised before it's shown.
-const ECHO_HOLD_MS: u64 = 1_500;
-/// A mic line within this long of a meeting-audio line can be its echo.
+/// A mic line is held until the meeting audio has been transcribed past it, so
+/// echo of the speakers (no headphones) can be recognised before it's shown.
+/// Meeting audio can lag well behind (a long stretch of talk is only cut at
+/// MAX_UTTERANCE), so this is the most it waits.
+const MAX_ECHO_HOLD_MS: u64 = 15_000;
+/// How far past a mic line the meeting audio must be transcribed before the
+/// line is released (its echo can land a little later).
 const ECHO_SLACK_MS: u64 = 1_500;
 
 fn min_speech(source: &str) -> usize {
@@ -83,6 +86,8 @@ struct Track {
     recent_rms: VecDeque<f32>,
     /// `pending.len()` when the last partial result was produced.
     partial_mark: usize,
+    /// Capture time of the newest audio pumped.
+    last_captured_at: u64,
 }
 
 struct Chunk {
@@ -105,6 +110,7 @@ impl Track {
             *self = Track::default(); // capture restarted
         }
         self.cursor = end;
+        self.last_captured_at = captured_at;
         self.pending.extend_from_slice(&samples);
 
         let mut chunks = Vec::new();
@@ -157,6 +163,18 @@ impl Track {
             }
         }
         chunks
+    }
+
+    /// Wall-clock time up to which this track's audio has been turned into
+    /// finished utterances (or was silence): everything before the utterance
+    /// still being spoken.
+    fn settled_until(&self) -> u64 {
+        if self.in_speech {
+            let pending_ms = (self.pending.len() * 1000 / SAMPLE_RATE) as u64;
+            self.last_captured_at.saturating_sub(pending_ms)
+        } else {
+            self.last_captured_at
+        }
     }
 
     fn is_speech(&mut self, rms: f32) -> bool {
@@ -224,8 +242,8 @@ pub struct LiveTranscriber {
     system: Mutex<Track>,
     mic: Mutex<Track>,
     segments: Mutex<VecDeque<LiveSegment>>,
-    /// Mic lines waiting for the echo check, with when to release them.
-    held_mic: Mutex<Vec<(LiveSegment, u64)>>,
+    /// Mic lines waiting for the echo check.
+    held_mic: Mutex<Vec<LiveSegment>>,
     speakers: Mutex<SpeakerClusters>,
     extractor: Mutex<Option<Extractor>>,
     last_error: Mutex<Option<String>>,
@@ -339,16 +357,15 @@ impl Deps {
         let (mic, system): (Vec<_>, Vec<_>) = new.into_iter().partition(|s| s.source == "mic");
         self.commit(system);
         if !mic.is_empty() {
-            let release_at = now_ms() + ECHO_HOLD_MS;
             if let Ok(mut held) = self.live.held_mic.lock() {
-                held.extend(mic.into_iter().map(|s| (s, release_at)));
+                held.extend(mic);
             }
         }
         self.release_mic(false);
     }
 
-    /// Drop held mic lines that echo a meeting-audio line; commit the ones
-    /// whose hold has passed (or all of them, with `all`).
+    /// Drop held mic lines that echo a meeting-audio line; commit the ones the
+    /// meeting audio has been transcribed past (or all of them, with `all`).
     fn release_mic(&self, all: bool) {
         let held = match self.live.held_mic.lock() {
             Ok(mut held) => std::mem::take(&mut *held),
@@ -364,16 +381,17 @@ impl Deps {
             .map(|s| s.iter().filter(|s| s.source == "system").cloned().collect())
             .unwrap_or_default();
         let now = now_ms();
+        let settled = self.live.system.lock().map(|t| t.settled_until()).unwrap_or(now);
         let mut ready = Vec::new();
         let mut keep = Vec::new();
-        for (segment, release_at) in held {
+        for segment in held {
             if is_echo(&segment, &system) {
                 continue;
             }
-            if all || now >= release_at {
+            if all || echo_check_done(&segment, settled, now) {
                 ready.push(segment);
             } else {
-                keep.push((segment, release_at));
+                keep.push(segment);
             }
         }
         if let Ok(mut held) = self.live.held_mic.lock() {
@@ -477,11 +495,17 @@ fn label_speakers(
         .collect()
 }
 
-/// A mic line that overlaps a meeting-audio line in time and repeats its words.
+/// Whether a held mic line can be released: the meeting audio around it has
+/// been transcribed (so any echo would have shown up), or it's waited long enough.
+fn echo_check_done(mic: &LiveSegment, system_settled_until: u64, now: u64) -> bool {
+    system_settled_until >= mic.end_ms + ECHO_SLACK_MS || now >= mic.end_ms + MAX_ECHO_HOLD_MS
+}
+
+/// A mic line that happens during a meeting-audio line and repeats its words.
 fn is_echo(mic: &LiveSegment, system: &[LiveSegment]) -> bool {
+    let secs = |ms: u64| ms as f64 / 1000.0;
     system.iter().any(|s| {
-        mic.start_ms <= s.end_ms + ECHO_SLACK_MS
-            && s.start_ms <= mic.end_ms + ECHO_SLACK_MS
+        overlaps_like_echo((secs(mic.start_ms), secs(mic.end_ms)), (secs(s.start_ms), secs(s.end_ms)))
             && looks_like_echo(&mic.text, &s.text)
     })
 }

@@ -13,9 +13,10 @@ import { createQuestionDetector } from "@/lib/functions/question-detect.function
 interface Line { source: string; speaker?: string; start: number; end: number; arrives: number; text: string }
 interface Truth { who: string; text: string; start: number; end: number; expect: "answer" | "skip" | null; mic?: boolean }
 
-const [linesPath, truthPath, pauseArg] = process.argv.slice(2);
+// Without a truth file ("-"), it lists what would be answered and skipped.
+const [linesPath, truthPath = "-", pauseArg] = process.argv.slice(2);
 const lines: Line[] = JSON.parse(readFileSync(linesPath, "utf8"));
-const truth: Truth[] = JSON.parse(readFileSync(truthPath, "utf8"));
+const truth: Truth[] = truthPath === "-" ? [] : JSON.parse(readFileSync(truthPath, "utf8"));
 const pauseMs = Number(pauseArg ?? 2000);
 
 // A tiny virtual clock: Date.now and setTimeout driven by the replay.
@@ -72,6 +73,11 @@ const matches = (t: Truth, text: string) => overlap(t.text, text) >= 0.6;
 
 let problems = 0;
 console.log(`pause ${pauseMs} ms\n`);
+if (truth.length === 0) {
+  for (const f of fired) console.log(`ANSWER ${f.at.toFixed(1)}s  ${f.question}`);
+  for (const s of skipped) console.log(`skip   ${s.at.toFixed(1)}s  [${s.reason}] ${s.question}`);
+  process.exit(0);
+}
 for (const t of truth.filter((t) => !t.mic && t.expect)) {
   const hit = fired.find((f) => matches(t, f.question));
   const ok = t.expect === "answer" ? Boolean(hit) : !hit;

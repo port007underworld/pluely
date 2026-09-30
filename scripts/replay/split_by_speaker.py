@@ -9,8 +9,9 @@ labels from a replay of the whole file:
   python3 scripts/replay/split_by_speaker.py <recording.wav> <lines.json> <out-prefix> \
       [--you "Speaker 2"] [--echo 0.15]
 
---you    the label to treat as you (default: the main voice other than the one
-         asking the most questions, i.e. the interviewee)
+--you    the label(s) to treat as you, comma-separated when one person got
+         several labels (default: the main voice other than the one asking
+         the most questions, i.e. the interviewee)
 --echo   how much of the other person leaks into the mic, as with laptop
          speakers (0 = headphones)
 
@@ -52,14 +53,14 @@ def main():
     print("questions by label:", dict(questions))
     interviewer = max(talk, key=lambda k: (questions[k], talk[k]))
     others = [k for k in talk if k != interviewer] or [interviewer]
-    you = args.you or max(others, key=talk.get)
-    print(f"treating {you!r} as you")
+    you = set(args.you.split(",")) if args.you else {max(others, key=talk.get)}
+    print(f"treating {sorted(you)} as you")
 
     # Replay times are seconds from the start of the recording; the replay
     # starts feeding audio at 0, so they line up with sample positions.
     mask = np.zeros(len(audio), bool)
     for l in lines:
-        if (l.get("speaker") or "Them") == you:
+        if (l.get("speaker") or "Them") in you:
             a, b = int(max(0, l["start"] - 0.15) * RATE), int(min(len(audio) / RATE, l["end"] + 0.15) * RATE)
             mask[a:b] = True
     mic = np.where(mask, audio, 0).astype(np.float32)
