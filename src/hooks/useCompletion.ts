@@ -1111,7 +1111,6 @@ export const useCompletion = () => {
     const detector = createQuestionDetector({
       onQuestion: (question, endedAt) => void autoAnswerRef.current(question, endedAt),
       onSkip: (question, reason) => console.info(`[auto-answer] skipped (${reason}): ${question}`),
-      skipSmallTalk: transcriptionConfig.autoAnswerSkipSmallTalk,
       pauseMs: transcriptionConfig.autoAnswerDelayMs,
     });
     let cancelled = false;
@@ -1137,11 +1136,7 @@ export const useCompletion = () => {
       detector.dispose();
       unlisteners.forEach((fn) => fn());
     };
-  }, [
-    autoAnswerEnabled,
-    transcriptionConfig.autoAnswerDelayMs,
-    transcriptionConfig.autoAnswerSkipSmallTalk,
-  ]);
+  }, [autoAnswerEnabled, transcriptionConfig.autoAnswerDelayMs]);
 
   // Quick actions rework the last answer; the conversation history carries it.
   const [actionNotice, setActionNotice] = useState<string | null>(null);

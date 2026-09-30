@@ -607,7 +607,9 @@ export const TranscriptionSettings = () => {
                     <p className="text-xs text-muted-foreground">
                       When someone else in the meeting asks a question, Runningbord answers it
                       in the overlay without a shortcut press. Only their audio is used, and it
-                      waits for them to finish speaking. A question asked while an answer is still
+                      waits for them to finish speaking, and skips small talk, logistics (“can you
+                      hear me?”, “is now a good time?”) and questions someone has already answered.
+                      A question asked while an answer is still
                       being written is answered right after it. Each answer is a normal AI request.
                       While Meeting mode is on, the question-mark button in the overlay (or its
                       shortcut) turns this on and off.
@@ -640,19 +642,6 @@ export const TranscriptionSettings = () => {
                         ))}
                       </SelectContent>
                     </Select>
-                  </div>
-                )}
-                {config.autoAnswer && (
-                  <div className="flex items-start justify-between gap-3">
-                    <p className="text-xs text-muted-foreground">
-                      Skip small talk and logistics (greetings, “can you hear me?”, “is now a good
-                      time?”, “does that make sense?”). Questions someone has already answered are
-                      always skipped.
-                    </p>
-                    <Switch
-                      checked={config.autoAnswerSkipSmallTalk}
-                      onCheckedChange={(autoAnswerSkipSmallTalk) => setConfig({ autoAnswerSkipSmallTalk })}
-                    />
                   </div>
                 )}
                 {config.autoAnswer && (

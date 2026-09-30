@@ -97,8 +97,6 @@ export interface QuestionDetectorOptions {
   onQuestion: (question: string, endedAt: number) => void;
   /** Called instead when a question is dropped, with the reason (for logging). */
   onSkip?: (question: string, reason: "answered" | "small talk") => void;
-  /** Skip greetings, logistics and check-ins. */
-  skipSmallTalk?: boolean;
   /** Silence after the question before answering, so follow-on clauses are included. */
   pauseMs?: number;
   /** Safety cap against noisy audio: most answers in any 60 seconds. */
@@ -115,7 +113,6 @@ export interface QuestionDetectorOptions {
 export function createQuestionDetector({
   onQuestion,
   onSkip,
-  skipSmallTalk = true,
   pauseMs = 1800,
   maxPerMinute = 6,
 }: QuestionDetectorOptions) {
@@ -151,7 +148,7 @@ export function createQuestionDetector({
       return;
     }
     if (pending.length === 0) return;
-    if (skipSmallTalk && questions.every(isSmallTalk)) return drop("small talk");
+    if (questions.every(isSmallTalk)) return drop("small talk");
     const question = pending.join(" ").trim();
     reset();
     fired.push(now);
