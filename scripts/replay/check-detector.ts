@@ -63,6 +63,10 @@ const ANSWER = [
   "Now, when I have to fill this second one, what happens?",
   "So if I go like this, in this case what happens?",
   "I mean, you know, what would you do in a production database?",
+  "Okay, so given this graph, how do you find the number of components?",
+  "Right, and in that case, how would you make sure there are no cycles?",
+  "Is the time complexity of this approach correct?",
+  "Is my understanding of the problem statement right?",
 ];
 
 /** Lines that shouldn't cost an AI request. */
@@ -110,6 +114,11 @@ const SKIP = [
   "But how am I making sure?",
   "Anything I can do? Should I do good?",
   "Okay, should I write the code for this? Wait, okay.",
+  // Thinking aloud after a comma (Striver interview, found in the held-out check)
+  "Now, this is where to start thinking, how do I make sure that I do this?",
+  "Now this is where I have to start thinking, how do I make sure that I remove?",
+  "How many more do I require? The more requirement was to if I am not wrong correct?",
+  "and that came up as current component. And how much more do I require?",
   "which groups do I belong to?",
   "I'll just describe the API also, but is this part fine or should I dig deeper into this?",
   // Too short to be worth answering (mostly mishearing)

@@ -133,7 +133,7 @@ const MIN_QUESTION_WORDS = 4;
  */
 const SELF_DIRECTED = [
   /^(can|could|should|shall|do|did|may|will|would|am|must) i\b/,
-  /^(what|how|why|where|when|which|who)( \w+)? (do|did|should|can|could|am|will|would|shall|must) i\b/,
+  /^(what|how|why|where|when|which|who)( \w+){0,2} (do|did|should|can|could|am|will|would|shall|must) i\b/,
   /^what i (do|should|can|need)\b/,
   /^(what|how|where) (is|was|are) my\b/,
   /^(is|was) (it|this|that) my\b/,
@@ -142,9 +142,18 @@ const SELF_DIRECTED = [
   /^i('ll|'m|'d| will| am| think)\b/,
 ];
 
+/**
+ * The same check-in when transcription drops the comma ("…if I am not wrong
+ * correct?"). Only for statements: "Is the time complexity correct?" asks.
+ */
+const UNMARKED_TAG = /\s(right|correct)\s*\?\s*$/i;
+const QUESTION_OPENING =
+  /^(is|are|was|were|do|does|did|can|could|would|will|should|shall|have|has|what|why|how|when|where|which|who|whose)\b/;
+
 /** Greetings, logistics, check-ins and thinking aloud: no prepared answer needed. */
 export function isSmallTalk(question: string): boolean {
   if (TAG_QUESTION.test(question.trim())) return true;
+  if (UNMARKED_TAG.test(question.trim()) && !QUESTION_OPENING.test(normalize(question))) return true;
   const core = normalize(question);
   if (core.split(" ").filter(Boolean).length < MIN_QUESTION_WORDS) return true;
   if (SELF_DIRECTED.some((pattern) => pattern.test(core))) return true;
@@ -156,7 +165,9 @@ export function isSmallTalk(question: string): boolean {
     const asSaid = candidate.trim().replace(/^[-–—\s]+/, "").replace(LEADING_FILLER, "");
     if (WHO_IS_THIS.test(asSaid)) return true;
     const q = normalize(candidate);
-    return SMALL_TALK.some((pattern) => pattern.test(q));
+    // Thinking aloud often comes after a comma ("…start thinking, how do I
+    // make sure…"), so the first-person check applies to the clause too.
+    return SMALL_TALK.some((pattern) => pattern.test(q)) || SELF_DIRECTED.some((pattern) => pattern.test(q));
   });
 }
 
