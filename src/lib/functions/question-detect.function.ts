@@ -48,6 +48,21 @@ const SMALL_TALK = [
   /^any (questions|thoughts)( so far| before we (start|begin|move on))?$/,
   /^(are you|you) (still )?(there|with me)$/,
   /^(can|could) you repeat (that|the question)$/,
+  // Following along, or asking to repeat.
+  /^(did|do) you (get|understand|follow)( (that|this|it|me|the question|what i('m| am) saying))?$/,
+  /\bam i making sense\b/,
+  /\b(i )?lost you\b/,
+  /^(can|could) you (please )?(repeat|re-?walk me through)( (that|it|this))?( again| now)?$/,
+  // What to do next.
+  /^(should|shall|can) we (do|try) (one|another|one more)( more)? (question|problem)\b/,
+  /^(do|would) you mind\b/,
+  /^(yeah,? )?(anything|what) else$/,
+  /^which (programming )?language (are|will|would|do) you (use|using|code|coding|gonna|going to|want|like|prefer)\b/,
+  // After the interview.
+  /\bhow (was|is) (your|the|this) (experience|interview)\b/,
+  /\b(your|the) experience( first)?,? how was it$/,
+  /^how do you think (i|it) (was|did|went)$/,
+  /^(so )?(first of all,? )?how do you feel about (this|it|the interview|today)$/,
 ];
 
 /** Minimum wait after a line, so the rest of its chunk arrives first. */
@@ -107,9 +122,32 @@ export function looksLikeQuestion(text: string): boolean {
 const TAG_QUESTION =
   /,\s*(right|correct|yeah|yes|no|ok|okay|you know|isn't it|is it|doesn't it|does it|don't you|do you|didn't it|did it|won't it|wouldn't it|can't you|aren't you|isn't that right|am i right)\s*\?\s*$/i;
 
-/** Greetings, logistics and check-ins that don't need a prepared answer. */
+/** Fewer words than this (after filler) is mostly mishearing or a trivial prompt ("Is it one story?"). */
+const MIN_QUESTION_WORDS = 4;
+
+/**
+ * The speaker asking themselves ("Can I add an opening bracket here?", "What
+ * is my condition now?", "How am I making sure?"): thinking aloud, not asking
+ * you. Only when the question itself is about the speaker: "Now, when I fill
+ * this one, what happens?" and "I mean, what would you do?" still ask you.
+ */
+const SELF_DIRECTED = [
+  /^(can|could|should|shall|do|did|may|will|would|am|must) i\b/,
+  /^(what|how|why|where|when|which|who)( \w+)? (do|did|should|can|could|am|will|would|shall|must) i\b/,
+  /^what i (do|should|can|need)\b/,
+  /^(what|how|where) (is|was|are) my\b/,
+  /^(is|was) (it|this|that) my\b/,
+  /\b(or|and|but) (should|shall|can|do|could) i\b/,
+  /^(is there )?anything (else )?i can\b/,
+  /^i('ll|'m|'d| will| am| think)\b/,
+];
+
+/** Greetings, logistics, check-ins and thinking aloud: no prepared answer needed. */
 export function isSmallTalk(question: string): boolean {
   if (TAG_QUESTION.test(question.trim())) return true;
+  const core = normalize(question);
+  if (core.split(" ").filter(Boolean).length < MIN_QUESTION_WORDS) return true;
+  if (SELF_DIRECTED.some((pattern) => pattern.test(core))) return true;
   // Whisper often joins sentences with commas ("…from Jane Street, is this
   // Nolan?"), so also judge the last clause on its own.
   const clauses = question.split(/[,;]\s+/);

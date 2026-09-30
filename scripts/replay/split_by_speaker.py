@@ -53,7 +53,7 @@ def main():
     print("questions by label:", dict(questions))
     interviewer = max(talk, key=lambda k: (questions[k], talk[k]))
     others = [k for k in talk if k != interviewer] or [interviewer]
-    you = set(args.you.split(",")) if args.you else {max(others, key=talk.get)}
+    you = set(args.you.split(",")) - {"none"} if args.you else {max(others, key=talk.get)}
     print(f"treating {sorted(you)} as you")
 
     # Replay times are seconds from the start of the recording; the replay

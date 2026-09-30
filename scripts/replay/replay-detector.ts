@@ -72,8 +72,12 @@ const overlap = (a: string, b: string) => {
 const matches = (t: Truth, text: string) => overlap(t.text, text) >= 0.6;
 
 let problems = 0;
-console.log(`pause ${pauseMs} ms\n`);
+if (!process.env.DETECTOR_JSON) console.log(`pause ${pauseMs} ms\n`);
 if (truth.length === 0) {
+  if (process.env.DETECTOR_JSON) {
+    console.log(JSON.stringify({ fired, skipped }));
+    process.exit(0);
+  }
   for (const f of fired) console.log(`ANSWER ${f.at.toFixed(1)}s  ${f.question}`);
   for (const s of skipped) console.log(`skip   ${s.at.toFixed(1)}s  [${s.reason}] ${s.question}`);
   process.exit(0);

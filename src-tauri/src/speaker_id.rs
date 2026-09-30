@@ -56,16 +56,18 @@ pub async fn speaker_model_delete(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-/// Measured on a real call: the same voice scores ~0.84 against its own centroid
-/// (5th percentile 0.68), a different voice ~0.53 (95th percentile 0.65).
-const SAME_SPEAKER: f32 = 0.65;
+/// Tuned on twelve recorded interviews. The speaker model scores two
+/// different people anywhere from ~0.5 (a man and a woman) to ~0.85 (two
+/// similar voices on compressed audio), so a lower threshold merges people in
+/// some calls. Erring high splits one person into several labels instead,
+/// which naming them the same in People undoes; merged people can't be undone.
+const SAME_SPEAKER: f32 = 0.80;
 /// Short utterances give noisy embeddings: only attach them to a clear match.
-const SHORT_MATCH: f32 = 0.55;
+const SHORT_MATCH: f32 = 0.70;
 const MIN_RELIABLE_SECONDS: f32 = 1.5;
 /// A voice that matches nobody becomes a new speaker only after this many
 /// matching utterances. One-off odd audio (a laugh, music, a bad line) would
-/// otherwise start a new "Speaker N" each time; tuned on a real interview
-/// recording, where it cut two people from eight labels to three.
+/// otherwise start a new "Speaker N" each time.
 const CONFIRM_UTTERANCES: usize = 3;
 const MAX_CANDIDATES: usize = 6;
 const MAX_SPEAKERS: usize = 8;
