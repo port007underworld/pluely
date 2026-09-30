@@ -45,6 +45,7 @@ reqwest = { version = "0.12", features = ["json", "stream", "multipart"] }
 futures-util = "0.3"
 anyhow = "1.0"
 tracing = "0.1"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "registry", "std"] }
 tauri-plugin-shell = "2.3.1"
 tauri-plugin-sql = { version = "2", features = ["sqlite"] }
 ringbuf = "0.4"

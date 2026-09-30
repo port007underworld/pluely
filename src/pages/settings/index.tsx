@@ -6,6 +6,7 @@ import {
   Updates,
   ChatHistory,
   SetupGuide,
+  Diagnostics,
 } from "./components";
 import { PageLayout } from "@/layouts";
 
@@ -28,6 +29,8 @@ const Settings = () => {
       <Updates />
 
       <SetupGuide />
+
+      <Diagnostics />
     </PageLayout>
   );
 };

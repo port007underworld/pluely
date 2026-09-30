@@ -403,7 +403,7 @@ They need **Write notes when Meeting mode is turned off** switched on, live tran
 Some meeting apps capture the whole screen in ways that ignore the "hide from capture" setting. Share a single window or tab instead of the whole screen.
 
 **Something else went wrong.**
-**Dashboard → Recent Requests** shows the error for each recent request. If you report a problem on GitHub, include what you did and that error text (API keys aren't included).
+**Dashboard → Recent Requests** shows the error for each recent request. To report a problem, go to **App Settings → Diagnostics → Copy diagnostics** and paste the result into a GitHub issue along with what you did. The report has the app version, your settings (not API keys), recent errors and the end of the local log; it never includes prompts, answers or transcripts, and nothing is sent anywhere. **Open log folder** shows the log file itself.
 
 ---
 

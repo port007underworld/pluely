@@ -1,6 +1,7 @@
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 mod capture;
 mod db;
+mod diagnostics;
 mod documents;
 mod export;
 mod secrets;
@@ -111,8 +112,12 @@ pub fn run() {
             secrets::secret_get,
             secrets::secret_set,
             secrets::secret_delete,
+            diagnostics::log_event,
+            diagnostics::diagnostics_log_tail,
+            diagnostics::diagnostics_log_path,
         ])
         .setup(|app| {
+            diagnostics::init_logging(app.handle());
             // Setup main window positioning
             window::setup_main_window(app).expect("Failed to setup main window");
             #[cfg(target_os = "macos")]

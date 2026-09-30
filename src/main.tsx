@@ -7,6 +7,9 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import AppRoutes from "./routes";
 import { startUpdateChecks } from "./lib/updater";
 import { startRetentionSweep } from "./lib/retention";
+import { installErrorLogging } from "./lib/diagnostics";
+
+installErrorLogging();
 
 const currentWindow = getCurrentWindow();
 const windowLabel = currentWindow.label;

@@ -13,3 +13,4 @@ export * from "./shortcut-format";
 export * from "./updater";
 export * from "./retention";
 export * from "./onboarding";
+export * from "./diagnostics";
