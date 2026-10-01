@@ -7,6 +7,8 @@ mod export;
 mod secrets;
 mod local_stt;
 mod mic_audio;
+#[cfg(target_os = "macos")]
+mod mic_voice_processing;
 mod live_transcript;
 mod speaker_id;
 mod shortcuts;

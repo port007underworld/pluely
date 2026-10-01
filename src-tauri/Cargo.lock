@@ -3653,6 +3653,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "objc2-avf-audio"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "13a380031deed8e99db00065c45937da434ca987c034e13b87e4441f9e4090be"
+dependencies = [
+ "block2 0.6.1",
+ "objc2 0.6.2",
+ "objc2-foundation 0.3.2",
+]
+
+[[package]]
 name = "objc2-cloud-kit"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5091,11 +5102,13 @@ version = "0.3.2"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
+ "block2 0.6.1",
  "cpal",
  "futures-util",
  "image",
  "keyring",
  "objc2 0.6.2",
+ "objc2-avf-audio",
  "objc2-core-audio",
  "objc2-foundation 0.3.2",
  "ogg",

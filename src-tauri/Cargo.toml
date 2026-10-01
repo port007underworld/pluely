@@ -62,6 +62,9 @@ tauri-plugin-macos-permissions = "2"
 tauri-nspanel = { git = "https://github.com/ahkohd/tauri-nspanel", branch = "v2" }
 objc2 = { version = "0.6", features = ["std"] }
 objc2-core-audio = "0.3"
+# Voice processing (echo cancellation) for the microphone, as FaceTime uses.
+objc2-avf-audio = { version = "0.3", default-features = false, features = ["std", "block2", "AVAudioEngine", "AVAudioIONode", "AVAudioNode", "AVAudioBuffer", "AVAudioFormat", "AVAudioTypes", "AVAudioMixing", "AVAudioTime"] }
+block2 = "0.6"
 whisper-rs = { version = "0.16", features = ["metal"] }
 # Speaker embeddings for telling remote speakers apart (static onnxruntime).
 sherpa-rs = { version = "0.6.8", default-features = false, features = ["download-binaries", "static"] }

@@ -83,6 +83,63 @@ fn open_default_mic(state: Arc<MicAudioState>) -> Result<(cpal::Stream, String),
     Ok((stream, name))
 }
 
+/// Runs on the mic thread until told to stop. Reports the device name, or why
+/// it couldn't be opened, through `ready`.
+fn run_mic(
+    state: Arc<MicAudioState>,
+    ready: mpsc::Sender<Result<String, String>>,
+    stop: mpsc::Receiver<()>,
+) {
+    #[cfg(target_os = "macos")]
+    {
+        use crate::mic_voice_processing::VoiceProcessingMic;
+        match VoiceProcessingMic::open(state.clone()) {
+            Ok(mic) => {
+                let _ = ready.send(Ok(default_mic_name()));
+                let mut mic = Some(mic);
+                // Wait for stop, reopening if the engine stopped because the
+                // audio devices changed.
+                while let Err(mpsc::RecvTimeoutError::Timeout) =
+                    stop.recv_timeout(Duration::from_secs(1))
+                {
+                    if mic.as_ref().is_some_and(|m| m.is_running()) {
+                        continue;
+                    }
+                    mic = None;
+                    match VoiceProcessingMic::open(state.clone()) {
+                        Ok(m) => {
+                            tracing::info!("Microphone reopened on {}", default_mic_name());
+                            mic = Some(m);
+                        }
+                        Err(e) => tracing::warn!("Reopening the microphone failed: {}", e),
+                    }
+                }
+                return;
+            }
+            Err(e) => tracing::warn!("{}; using the microphone without echo cancellation", e),
+        }
+    }
+
+    match open_default_mic(state) {
+        Ok((stream, name)) => {
+            let _ = ready.send(Ok(name));
+            let _ = stop.recv();
+            drop(stream);
+        }
+        Err(e) => {
+            let _ = ready.send(Err(e));
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn default_mic_name() -> String {
+    cpal::default_host()
+        .default_input_device()
+        .and_then(|d| d.name().ok())
+        .unwrap_or_else(|| "Microphone".to_string())
+}
+
 #[tauri::command]
 pub async fn mic_audio_start(
     buffer_seconds: u32,
@@ -100,16 +157,7 @@ pub async fn mic_audio_start(
     let (ready_tx, ready_rx) = mpsc::channel::<Result<String, String>>();
     let (stop_tx, stop_rx) = mpsc::channel::<()>();
     let mic_state = state.inner().clone();
-    let handle = thread::spawn(move || match open_default_mic(mic_state) {
-        Ok((stream, name)) => {
-            let _ = ready_tx.send(Ok(name));
-            let _ = stop_rx.recv();
-            drop(stream);
-        }
-        Err(e) => {
-            let _ = ready_tx.send(Err(e));
-        }
-    });
+    let handle = thread::spawn(move || run_mic(mic_state, ready_tx, stop_rx));
 
     // Permission is checked (and asked for) before this is called, so an open
     // that takes this long means the device is busy or stuck (e.g. a
@@ -169,4 +217,34 @@ pub async fn mic_audio_silence_ratio(
     Ok(crate::system_audio::silence_ratio(
         &state.buffer.recent_samples(seconds)?,
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Records the default mic through the real capture path and writes what
+    /// would be transcribed. Run with something playing from the speakers:
+    /// MIC_TEST_OUT=/tmp/mic.wav cargo test mic_capture -- --ignored
+    #[test]
+    #[ignore]
+    fn mic_capture() {
+        let out = std::env::var("MIC_TEST_OUT").expect("MIC_TEST_OUT");
+        let secs: u64 = std::env::var("MIC_TEST_SECONDS").ok().and_then(|s| s.parse().ok()).unwrap_or(10);
+        let state = Arc::new(MicAudioState::new());
+        state.buffer.set_buffer_seconds(secs as u32 + 5);
+        state.buffer.reset_capture_state();
+        state.buffer.set_recording(true);
+        let (ready_tx, ready_rx) = mpsc::channel();
+        let (stop_tx, stop_rx) = mpsc::channel();
+        let s = state.clone();
+        let handle = thread::spawn(move || run_mic(s, ready_tx, stop_rx));
+        println!("opened: {:?}", ready_rx.recv().unwrap());
+        thread::sleep(Duration::from_secs(secs));
+        stop_tx.send(()).unwrap();
+        handle.join().unwrap();
+        let samples = state.buffer.recent_samples(Some(secs as u32 + 5)).unwrap();
+        std::fs::write(&out, crate::system_audio::encode_wav_pcm16(&samples)).unwrap();
+        println!("wrote {:.1}s", samples.len() as f32 / 16_000.0);
+    }
 }
