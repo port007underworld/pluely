@@ -38,14 +38,13 @@ const MAX_UTTERANCE: usize = SAMPLE_RATE * 10;
 const MIN_SPEECH: usize = SAMPLE_RATE * 3 / 10;
 /// The mic hears typing and desk bumps, so it needs more speech to count.
 const MIN_MIC_SPEECH: usize = SAMPLE_RATE / 2;
-/// A mic line is held until the meeting audio has been transcribed past it, so
-/// echo of the speakers (no headphones) can be recognised before it's shown.
-/// Meeting audio can lag well behind (a long stretch of talk is only cut at
-/// MAX_UTTERANCE), so this is the most it waits.
-const MAX_ECHO_HOLD_MS: u64 = 15_000;
-/// How far past a mic line the meeting audio must be transcribed before the
-/// line is released (its echo can land a little later).
-const ECHO_SLACK_MS: u64 = 1_500;
+/// A mic line is held until the meeting audio has been transcribed up to the
+/// moment it ended: echo of the speakers (no headphones) can only come from
+/// meeting audio before that, so by then it would have shown up. When the
+/// other side is quiet that's immediate; while they're mid-sentence it waits
+/// for their sentence to close, but never longer than this (their speech is
+/// cut into pieces of at most MAX_UTTERANCE anyway).
+const MAX_ECHO_HOLD_MS: u64 = 11_000;
 
 fn min_speech(source: &str) -> usize {
     if source == "mic" {
@@ -498,7 +497,7 @@ fn label_speakers(
 /// Whether a held mic line can be released: the meeting audio around it has
 /// been transcribed (so any echo would have shown up), or it's waited long enough.
 fn echo_check_done(mic: &LiveSegment, system_settled_until: u64, now: u64) -> bool {
-    system_settled_until >= mic.end_ms + ECHO_SLACK_MS || now >= mic.end_ms + MAX_ECHO_HOLD_MS
+    system_settled_until >= mic.end_ms || now >= mic.end_ms + MAX_ECHO_HOLD_MS
 }
 
 /// A mic line that happens during a meeting-audio line and repeats its words.
