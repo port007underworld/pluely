@@ -112,6 +112,11 @@ const inOrder = (subsystem: string, command: () => Promise<unknown>) => {
   return queues[subsystem];
 };
 
+/** Waits before retrying a microphone that didn't open. */
+const MIC_RETRY_DELAYS_MS = [2000, 4000];
+/** Bumped on every mic setting change, so stale retries give up. */
+let micGeneration = 0;
+
 /**
  * Before opening the microphone, make sure macOS allows it: ask if it hasn't
  * been decided (the system prompt), and don't try if it's denied. Opening a
@@ -554,16 +559,29 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
   const [micDevice, setMicDevice] = useState<string | null>(null);
   useEffect(() => {
     if (!drivesAudio()) return;
+    const generation = ++micGeneration;
     inOrder("mic", async () => {
       let error: string | null = null;
       let device: string | null = null;
       try {
         if (captureMic) {
+          // Opening the mic while system-audio capture is still being set up
+          // often fails at launch, so wait for that first.
+          await queues["system-audio"];
           error = await ensureMicrophoneAllowed();
-          if (!error) {
-            device = await invoke<string>("mic_audio_start", {
-              bufferSeconds: systemAudioDaemonConfig.bufferSeconds,
-            });
+          // Retry a failed open, as toggling it off and on by hand does.
+          for (let attempt = 0; !error && attempt < MIC_RETRY_DELAYS_MS.length + 1; attempt++) {
+            if (generation !== micGeneration) return; // settings changed meanwhile
+            try {
+              device = await invoke<string>("mic_audio_start", {
+                bufferSeconds: systemAudioDaemonConfig.bufferSeconds,
+              });
+              break;
+            } catch (e) {
+              if (attempt === MIC_RETRY_DELAYS_MS.length) throw e;
+              console.warn(`Microphone didn't open (attempt ${attempt + 1}), retrying:`, e);
+              await new Promise((r) => setTimeout(r, MIC_RETRY_DELAYS_MS[attempt]));
+            }
           }
         } else {
           await invoke("mic_audio_stop");
