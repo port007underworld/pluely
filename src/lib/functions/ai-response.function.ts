@@ -36,23 +36,15 @@ type NetworkFailureDetails = {
   headers?: Record<string, string>;
 };
 
-const REDACTED_HEADER_KEYS = new Set([
-  "authorization",
-  "x-api-key",
-  "api-key",
-  "proxy-authorization",
-  "cookie",
-  "set-cookie",
-]);
+/**
+ * Any header whose name looks secret is hidden. A fixed list of names missed
+ * provider-specific ones (Google's x-goog-api-key was printed in full).
+ */
+const SECRET_HEADER = /(key|token|auth|secret|cookie|password|credential|session|signature)/i;
 
 function sanitizeHeaders(headers: Record<string, string>): Record<string, string> {
   return Object.fromEntries(
-    Object.entries(headers).map(([key, value]) => {
-      if (REDACTED_HEADER_KEYS.has(key.toLowerCase())) {
-        return [key, "[redacted]"];
-      }
-      return [key, value];
-    })
+    Object.entries(headers).map(([key, value]) => [key, SECRET_HEADER.test(key) ? "[redacted]" : value])
   );
 }
 
@@ -120,6 +112,11 @@ export interface AIRequestParams {
   requestId?: string;
   /** Timings of the steps before this request, shown in Recent Requests. */
   steps?: { label: string; ms: number }[];
+  /**
+   * Send `systemPrompt` exactly as given, without response settings, personal
+   * context, pinned facts or formatting rules (for small internal checks).
+   */
+  raw?: boolean;
 }
 
 const textLength = (content: Message["content"]) =>
@@ -169,7 +166,9 @@ export async function* fetchAIResponse(params: AIRequestParams): AsyncIterable<s
       hasTranscript: params.userMessage.includes("<meeting_transcript"),
       promptPreview: firstLine(params.userMessage).slice(0, 200),
       prompt: truncateForLog(params.userMessage),
-      systemPrompt: truncateForLog(buildEnhancedSystemPrompt(params.systemPrompt)),
+      systemPrompt: truncateForLog(
+        params.raw ? params.systemPrompt ?? "" : buildEnhancedSystemPrompt(params.systemPrompt)
+      ),
       history: history.map((m) => ({
         role: m.role,
         content: truncateForLog(
@@ -207,7 +206,7 @@ async function* streamAIResponse(
       return;
     }
 
-    const enhancedSystemPrompt = buildEnhancedSystemPrompt(systemPrompt);
+    const enhancedSystemPrompt = params.raw ? systemPrompt ?? "" : buildEnhancedSystemPrompt(systemPrompt);
 
     if (!provider) {
       throw new Error(`Provider not provided`);
