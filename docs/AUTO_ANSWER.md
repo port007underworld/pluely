@@ -82,3 +82,7 @@ The replay tooling is in [`scripts/replay/`](../scripts/replay/README.md):
 4. `npm run test:detector` checks 131 regression cases collected from these interviews, plus a wrap-up scenario.
 
 Adding new recordings, especially behavioral interviews and meetings with three or more people, is the best way to find what these 20 didn't cover.
+
+## What we tried and didn't ship
+
+An AI check before each automatic answer (a small model judging "should this be answered now?") was tested on three interviews. It cut only about 10% of requests on messy real audio and none on clean audio, missed the interviewer's rhetorical questions during feedback, sometimes invented questions from garbled lines, and added about a second to every answer. It isn't part of the app. Details, results and how to re-run it: [experiments/AUTO_ANSWER_MODEL_CHECK.md](experiments/AUTO_ANSWER_MODEL_CHECK.md).
