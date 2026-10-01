@@ -15,11 +15,16 @@ use objc2_avf_audio::{
     AVAudioVoiceProcessingOtherAudioDuckingLevel,
 };
 use std::ptr::NonNull;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 pub struct VoiceProcessingMic {
     engine: Retained<AVAudioEngine>,
-    _tap: RcBlock<dyn Fn(NonNull<AVAudioPCMBuffer>, NonNull<AVAudioTime>)>,
+    tap: RcBlock<dyn Fn(NonNull<AVAudioPCMBuffer>, NonNull<AVAudioTime>)>,
+    /// When audio last arrived, in ms since `opened`.
+    last_audio_ms: Arc<AtomicU64>,
+    opened: Instant,
 }
 
 impl VoiceProcessingMic {
@@ -47,8 +52,12 @@ impl VoiceProcessingMic {
             // several identical channels; the processed voice is channel 0, at
             // the rate each buffer says.
             let converter = Mutex::new(AudioConverter::new(48_000, 1));
+            let opened = Instant::now();
+            let last_audio_ms = Arc::new(AtomicU64::new(0));
+            let last_audio = last_audio_ms.clone();
             let tap = RcBlock::new(
                 move |pcm: NonNull<AVAudioPCMBuffer>, _: NonNull<AVAudioTime>| {
+                    last_audio.store(opened.elapsed().as_millis() as u64, Ordering::Relaxed);
                     let pcm = pcm.as_ref();
                     let frames = pcm.frameLength() as usize;
                     let channels = pcm.floatChannelData();
@@ -69,20 +78,34 @@ impl VoiceProcessingMic {
                     }
                 },
             );
-            input.installTapOnBus_bufferSize_format_block(0, 4096, None, RcBlock::as_ptr(&tap));
-            engine.prepare();
-            if let Err(e) = engine.startAndReturnError() {
+            let mic = Self { engine, tap, last_audio_ms, opened };
+            mic.start()?;
+            Ok(mic)
+        }
+    }
+
+    fn start(&self) -> Result<(), String> {
+        unsafe {
+            let input = self.engine.inputNode();
+            input.installTapOnBus_bufferSize_format_block(0, 4096, None, RcBlock::as_ptr(&self.tap));
+            self.engine.prepare();
+            self.engine.startAndReturnError().map_err(|e| {
                 input.removeTapOnBus(0);
-                return Err(format!("Couldn't start the microphone: {}", e));
-            }
-            Ok(Self { engine, _tap: tap })
+                format!("Couldn't start the microphone: {}", e)
+            })
         }
     }
 
     /// The engine stops by itself when the audio devices change (headphones
-    /// plugged in, a Bluetooth headset connecting); the caller reopens it.
+    /// plugged in, the output switched); the caller opens a new one.
     pub fn is_running(&self) -> bool {
         unsafe { self.engine.isRunning() }
+    }
+
+    /// How long it's been since audio last arrived (or since it was opened).
+    pub fn silent_for(&self) -> Duration {
+        let last = self.last_audio_ms.load(Ordering::Relaxed);
+        self.opened.elapsed().saturating_sub(Duration::from_millis(last))
     }
 }
 

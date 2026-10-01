@@ -83,6 +83,10 @@ fn open_default_mic(state: Arc<MicAudioState>) -> Result<(cpal::Stream, String),
     Ok((stream, name))
 }
 
+/// A running mic delivers audio every ~100 ms, silence included.
+#[cfg(target_os = "macos")]
+const MIC_STALL: Duration = Duration::from_secs(1);
+
 /// Runs on the mic thread until told to stop. Reports the device name, or why
 /// it couldn't be opened, through `ready`.
 fn run_mic(
@@ -97,21 +101,26 @@ fn run_mic(
             Ok(mic) => {
                 let _ = ready.send(Ok(default_mic_name()));
                 let mut mic = Some(mic);
-                // Wait for stop, reopening if the engine stopped because the
-                // audio devices changed.
+                // Wait for stop, rebuilding the mic if it stopped (the audio
+                // devices changed) or stopped delivering audio. Restarting the
+                // same engine after a device change runs but stays silent, so
+                // it's always built afresh.
                 while let Err(mpsc::RecvTimeoutError::Timeout) =
-                    stop.recv_timeout(Duration::from_secs(1))
+                    stop.recv_timeout(Duration::from_millis(250))
                 {
-                    if mic.as_ref().is_some_and(|m| m.is_running()) {
-                        continue;
-                    }
+                    let problem = match &mic {
+                        None => "isn't open",
+                        Some(m) if !m.is_running() => "stopped",
+                        Some(m) if m.silent_for() > MIC_STALL => "delivered no audio",
+                        Some(_) => continue,
+                    };
                     mic = None;
                     match VoiceProcessingMic::open(state.clone()) {
                         Ok(m) => {
-                            tracing::info!("Microphone reopened on {}", default_mic_name());
+                            tracing::info!("Microphone {}; reopened on {}", problem, default_mic_name());
                             mic = Some(m);
                         }
-                        Err(e) => tracing::warn!("Reopening the microphone failed: {}", e),
+                        Err(e) => tracing::warn!("Microphone {}; reopening failed: {}", problem, e),
                     }
                 }
                 return;
@@ -229,6 +238,7 @@ mod tests {
     #[test]
     #[ignore]
     fn mic_capture() {
+        let _ = tracing_subscriber::fmt().with_writer(std::io::stderr).try_init();
         let out = std::env::var("MIC_TEST_OUT").expect("MIC_TEST_OUT");
         let secs: u64 = std::env::var("MIC_TEST_SECONDS").ok().and_then(|s| s.parse().ok()).unwrap_or(10);
         let state = Arc::new(MicAudioState::new());
