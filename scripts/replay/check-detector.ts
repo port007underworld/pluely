@@ -188,14 +188,34 @@ async function wrapUpScenario(): Promise<string[]> {
     : [`wrap-up: expected only the first question answered, got ${JSON.stringify(answered)}`];
 }
 
+/** A question cut across two lines (long turns are split every few seconds). */
+async function splitSentenceScenario(): Promise<string[]> {
+  const answered: string[] = [];
+  const detector = createQuestionDetector({ onQuestion: (q) => answered.push(q), pauseMs: 20 });
+  detector.line("Great, okay, so I think the logic is there now, let me push on one more thing, you mentioned", Date.now());
+  await new Promise((r) => setTimeout(r, 50));
+  detector.line("unordered set, is there anything that worries you about that on a judge's machine?", Date.now());
+  await new Promise((r) => setTimeout(r, 300));
+  // An unfinished line with no continuation is still judged on its own.
+  detector.line("And how would you handle the case where every color is unique", Date.now());
+  await new Promise((r) => setTimeout(r, 3000));
+  detector.dispose();
+  const ok =
+    answered.length === 2 &&
+    answered[0].includes("unordered set, is there anything that worries you") &&
+    answered[1].startsWith("And how would you handle");
+  return ok ? [] : [`split sentence: got ${JSON.stringify(answered)}`];
+}
+
 const failures = [
   ...(await wrapUpScenario()),
+  ...(await splitSentenceScenario()),
   ...ANSWER.filter((q) => !wouldAnswer(q)).map((q) => `should answer: ${q}`),
   ...SKIP.filter(wouldAnswer).map((q) => `should skip:   ${q}`),
 ];
 if (failures.length) {
   console.error(failures.join("\n"));
-  console.error(`\n${failures.length} of ${ANSWER.length + SKIP.length + 1} checks failed`);
+  console.error(`\n${failures.length} of ${ANSWER.length + SKIP.length + 2} checks failed`);
   process.exit(1);
 }
-console.log(`all ${ANSWER.length + SKIP.length} detector cases and the wrap-up scenario pass`);
+console.log(`all ${ANSWER.length + SKIP.length} detector cases and both scenarios pass`);

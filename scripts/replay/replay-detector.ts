@@ -69,7 +69,10 @@ const overlap = (a: string, b: string) => {
   const shared = [...wa].filter((w) => wb.has(w)).length;
   return shared / Math.max(1, Math.min(wa.size, wb.size));
 };
-const matches = (t: Truth, text: string) => overlap(t.text, text) >= 0.6;
+/** A fired question belongs to a line if it shares its words and fires soon after it. */
+const MATCH_WINDOW_S = 60;
+const matches = (t: Truth, f: { at: number; question: string }) =>
+  overlap(t.text, f.question) >= 0.6 && f.at >= t.start && f.at <= t.end + MATCH_WINDOW_S;
 
 let problems = 0;
 if (!process.env.DETECTOR_JSON) console.log(`pause ${pauseMs} ms\n`);
@@ -83,14 +86,14 @@ if (truth.length === 0) {
   process.exit(0);
 }
 for (const t of truth.filter((t) => !t.mic && t.expect)) {
-  const hit = fired.find((f) => matches(t, f.question));
+  const hit = fired.find((f) => matches(t, f));
   const ok = t.expect === "answer" ? Boolean(hit) : !hit;
   if (!ok) problems++;
   const when = hit ? ` (answered at ${hit.at.toFixed(1)}s, ${(hit.at - t.end).toFixed(1)}s after they stopped)` : "";
   console.log(`${ok ? "ok  " : "FAIL"} expect ${t.expect.padEnd(6)} ${t.text}${when}`);
 }
 for (const f of fired) {
-  if (!truth.some((t) => t.expect === "answer" && matches(t, f.question))) {
+  if (!truth.some((t) => t.expect && matches(t, f))) {
     problems++;
     console.log(`FAIL unexpected answer at ${f.at.toFixed(1)}s: ${f.question}`);
   }

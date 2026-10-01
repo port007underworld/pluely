@@ -84,6 +84,12 @@ const WRAP_UP_MS = 20 * 60_000;
 
 export type SkipReason = "answered" | "small talk" | "wrap-up";
 
+/**
+ * How long an unfinished line waits for its continuation. Cut lines are
+ * followed almost immediately, since the speaker is still talking.
+ */
+const CARRY_MS = 2500;
+
 /** Minimum wait after a line, so the rest of its chunk arrives first. */
 const SETTLE_MS = 150;
 
@@ -275,6 +281,58 @@ export function createQuestionDetector({
     timer = setTimeout(fire, Math.max(SETTLE_MS, pauseMs - elapsed));
   };
 
+  /**
+   * The unfinished end of the last line, when it stopped mid-sentence (long
+   * turns are cut every few seconds, so "…you mentioned" / "unordered set, is
+   * there anything that worries you about that?" arrive as two lines).
+   */
+  let carry: { text: string; speaker?: string; endedAt: number } | null = null;
+  let carryTimer: ReturnType<typeof setTimeout> | undefined;
+
+  const flushCarry = () => {
+    clearTimeout(carryTimer);
+    const held = carry;
+    carry = null;
+    if (held) process(held.text, held.endedAt, held.speaker);
+  };
+
+  function process(text: string, endedAt: number, speaker?: string) {
+    const parts = sentences(text);
+    if (parts.length === 0) return;
+    if (WRAP_UP.test(normalize(text))) wrapUpUntil = Date.now() + WRAP_UP_MS;
+    let lastQuestion = -1;
+    parts.forEach((part, i) => {
+      if (looksLikeQuestion(part)) lastQuestion = i;
+    });
+
+    if (pending.length > 0) {
+      const otherVoice = Boolean(speaker && pendingSpeaker && speaker !== pendingSpeaker);
+      // Someone replied before we answered (often both sides are in the
+      // meeting audio): leave it.
+      if (lastQuestion < 0 && (otherVoice || looksLikeAnswer(parts[0]))) return drop("answered");
+      if (otherVoice) reset();
+    }
+
+    if (lastQuestion >= 0) {
+      const after = parts.slice(lastQuestion + 1);
+      // Asked and answered within one transcribed line.
+      if (after.length > 0 && looksLikeAnswer(after[0])) {
+        pending.push(...parts.slice(0, lastQuestion + 1));
+        questions.push(parts[lastQuestion]);
+        return drop("answered");
+      }
+      pending.push(...parts);
+      questions.push(...parts.filter(looksLikeQuestion));
+      pendingSpeaker = speaker ?? pendingSpeaker;
+      arm(endedAt);
+    } else if (pending.length > 0) {
+      // They kept talking: keep a little of it with the question (it may be
+      // context or a rephrase), but don't let a monologue grow without bound.
+      if (pending.length < 6) pending.push(text.trim());
+      arm(endedAt);
+    }
+  }
+
   return {
     /**
      * A finished line from another participant. `endedAt` (ms since epoch) is
@@ -283,46 +341,35 @@ export function createQuestionDetector({
      * voice label when speakers are told apart.
      */
     line(text: string, endedAt = Date.now(), speaker?: string) {
-      const parts = sentences(text);
-      if (parts.length === 0) return;
-      if (WRAP_UP.test(normalize(text))) wrapUpUntil = Date.now() + WRAP_UP_MS;
-      let lastQuestion = -1;
-      parts.forEach((part, i) => {
-        if (looksLikeQuestion(part)) lastQuestion = i;
-      });
-
-      if (pending.length > 0) {
-        const otherVoice = Boolean(speaker && pendingSpeaker && speaker !== pendingSpeaker);
-        // Someone replied before we answered (often both sides are in the
-        // meeting audio): leave it.
-        if (lastQuestion < 0 && (otherVoice || looksLikeAnswer(parts[0]))) return drop("answered");
-        if (otherVoice) reset();
+      let full = text.trim();
+      if (!full) return;
+      if (carry) {
+        clearTimeout(carryTimer);
+        const held = carry;
+        carry = null;
+        // Same person carrying on: join the cut sentence back together.
+        if (!speaker || !held.speaker || speaker === held.speaker) full = `${held.text} ${full}`;
+        else process(held.text, held.endedAt, held.speaker);
       }
-
-      if (lastQuestion >= 0) {
-        const after = parts.slice(lastQuestion + 1);
-        // Asked and answered within one transcribed line.
-        if (after.length > 0 && looksLikeAnswer(after[0])) {
-          pending.push(...parts.slice(0, lastQuestion + 1));
-          questions.push(parts[lastQuestion]);
-          return drop("answered");
-        }
-        pending.push(...parts);
-        questions.push(...parts.filter(looksLikeQuestion));
-        pendingSpeaker = speaker ?? pendingSpeaker;
-        arm(endedAt);
-      } else if (pending.length > 0) {
-        // They kept talking: keep a little of it with the question (it may be
-        // context or a rephrase), but don't let a monologue grow without bound.
-        if (pending.length < 6) pending.push(text.trim());
-        arm(endedAt);
+      // Ends mid-sentence: handle the finished sentences now and hold the rest
+      // for the next line. If nothing follows, it's judged on its own.
+      const parts = sentences(full);
+      const last = parts[parts.length - 1] ?? "";
+      if (!/[.?!…"')\]]$/.test(last)) {
+        carry = { text: last, speaker, endedAt };
+        carryTimer = setTimeout(flushCarry, CARRY_MS);
+        full = parts.slice(0, -1).join(" ");
+        if (!full) return;
       }
+      process(full, endedAt, speaker);
     },
     /** They're still mid-sentence: hold off answering. */
     speaking() {
       if (pending.length > 0) arm();
     },
     dispose() {
+      clearTimeout(carryTimer);
+      carry = null;
       reset();
     },
   };
