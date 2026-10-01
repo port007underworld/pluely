@@ -111,8 +111,10 @@ pub async fn mic_audio_start(
         }
     });
 
-    // The first open can block on the OS permission prompt.
-    match ready_rx.recv_timeout(Duration::from_secs(60)) {
+    // Permission is checked (and asked for) before this is called, so an open
+    // that takes this long means the device is busy or stuck (e.g. a
+    // Bluetooth headset switching modes).
+    match ready_rx.recv_timeout(Duration::from_secs(15)) {
         Ok(Ok(device_name)) => {
             *running = Some(Running {
                 stop: stop_tx,
@@ -128,7 +130,7 @@ pub async fn mic_audio_start(
         Err(_) => {
             state.buffer.set_recording(false);
             let _ = stop_tx.send(());
-            Err("Timed out opening the microphone".to_string())
+            Err("Couldn't open the microphone: it didn't respond within 15 seconds. It may be in use by another app, or a Bluetooth headset may be switching modes; try turning Meeting mode off and on.".to_string())
         }
     }
 }

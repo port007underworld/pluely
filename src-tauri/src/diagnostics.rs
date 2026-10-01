@@ -34,6 +34,8 @@ pub fn init_logging(app: &AppHandle) {
     let filter = Targets::new()
         .with_target("runningbord_lib", Level::INFO)
         .with_target("frontend", Level::INFO)
+        // Whisper reports hardware details as warnings on every launch.
+        .with_target("whisper_rs", Level::ERROR)
         .with_default(Level::WARN);
     let layer = tracing_subscriber::fmt::layer()
         .with_writer(Mutex::new(file))

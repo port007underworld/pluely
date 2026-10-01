@@ -42,6 +42,10 @@ export type IContextType = {
   setSystemAudioDaemonConfig: React.Dispatch<React.SetStateAction<SystemAudioDaemonConfig>>;
   /** Why system audio capture failed to start, if it did. */
   systemAudioError: string | null;
+  /** Why the microphone couldn't be started (Meeting mode with mic capture on), if it couldn't. */
+  micError: string | null;
+  /** The microphone being recorded, when mic capture is running. */
+  micDevice: string | null;
   customizable: CustomizableState;
   toggleAppIconVisibility: (isVisible: boolean) => Promise<void>;
   toggleAlwaysOnTop: (isEnabled: boolean) => Promise<void>;

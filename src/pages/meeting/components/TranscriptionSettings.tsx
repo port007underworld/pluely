@@ -143,6 +143,8 @@ export const TranscriptionSettings = () => {
     selectedAIProvider,
     systemAudioDaemonConfig,
     systemAudioError,
+    micError,
+    micDevice,
   } = useApp();
   const [config, setConfig] = useTranscriptionConfig();
   const speakerNames = useSpeakerNames();
@@ -151,7 +153,6 @@ export const TranscriptionSettings = () => {
   const [modelError, setModelError] = useState<string | null>(null);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<MeetingAudioCapture | null>(null);
-  const [micStatus, setMicStatus] = useState<{ device?: string; error?: string } | null>(null);
   const [liveStatus, setLiveStatus] = useState<LiveStatus | null>(null);
   const [liveLines, setLiveLines] = useState<LiveSegment[]>([]);
   // Words of the sentence still being spoken, per source.
@@ -209,20 +210,9 @@ export const TranscriptionSettings = () => {
     };
   }, [liveWanted]);
 
-  const toggleMic = async (enabled: boolean) => {
-    setConfig({ captureMic: enabled });
-    setMicStatus(null);
-    if (!enabled || !systemAudioDaemonConfig.enabled) return;
-    // Open it right away so the OS permission prompt appears now, not mid-meeting.
-    try {
-      const device = await invoke<string>("mic_audio_start", {
-        bufferSeconds: systemAudioDaemonConfig.bufferSeconds,
-      });
-      setMicStatus({ device });
-    } catch (e) {
-      setMicStatus({ error: String(e) });
-    }
-  };
+  // The overlay window starts the microphone (asking macOS for permission
+  // first) and reports back; this page only changes the setting.
+  const toggleMic = (enabled: boolean) => setConfig({ captureMic: enabled });
 
   const [speakerModel, setSpeakerModel] = useState<SpeakerModelStatus | null>(null);
 
@@ -369,16 +359,13 @@ export const TranscriptionSettings = () => {
                 "Them". Headphones give the cleanest result. Without them, echoed speaker audio is
                 filtered out, but some may slip through.
               </p>
-              {micStatus?.device && (
+              {config.captureMic && systemAudioDaemonConfig.enabled && micDevice && !micError && (
                 <p className="text-xs text-emerald-700 dark:text-emerald-400 mt-1">
-                  Listening on {micStatus.device}
+                  Listening on {micDevice}
                 </p>
               )}
-              {micStatus?.error && (
-                <p className="text-xs text-destructive mt-1">
-                  {micStatus.error}. On macOS, allow the app under System Settings › Privacy &
-                  Security › Microphone, then toggle this again.
-                </p>
+              {config.captureMic && systemAudioDaemonConfig.enabled && micError && (
+                <p className="text-xs text-destructive mt-1">{micError}</p>
               )}
               {config.captureMic && !systemAudioDaemonConfig.enabled && (
                 <p className="text-xs text-muted-foreground mt-1">

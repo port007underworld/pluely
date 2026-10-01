@@ -7,6 +7,10 @@ import {
 } from "@/config";
 import { getPlatform, safeLocalStorage } from "@/lib";
 import {
+  checkPermission as checkOsPermission,
+  requestPermission as requestOsPermission,
+} from "@/lib/permissions";
+import {
   getShortcutsConfig,
   loadProviderSelection,
   persistProviderSelection,
@@ -97,12 +101,29 @@ const readSystemAudioDaemonConfig = (): SystemAudioDaemonConfig => {
  */
 const drivesAudio = () => getCurrentWindow().label === "main";
 
-/** Run capture commands one after another, never overlapping. */
-let audioCommands: Promise<unknown> = Promise.resolve();
-const inOrder = (command: () => Promise<unknown>) => {
-  audioCommands = audioCommands.then(command, command);
-  return audioCommands;
+/**
+ * Run each subsystem's start/stop commands one after another, never
+ * overlapping. Each has its own queue, so a slow microphone can't hold up
+ * system audio or live transcription.
+ */
+const queues: Record<string, Promise<unknown>> = {};
+const inOrder = (subsystem: string, command: () => Promise<unknown>) => {
+  queues[subsystem] = (queues[subsystem] ?? Promise.resolve()).then(command, command);
+  return queues[subsystem];
 };
+
+/**
+ * Before opening the microphone, make sure macOS allows it: ask if it hasn't
+ * been decided (the system prompt), and don't try if it's denied. Opening a
+ * mic the app can't have used to hang for a minute instead of failing.
+ */
+async function ensureMicrophoneAllowed(): Promise<string | null> {
+  if (getPlatform() !== "macos") return null;
+  if ((await checkOsPermission("microphone")) === "granted") return null;
+  await requestOsPermission("microphone").catch(() => {});
+  if ((await checkOsPermission("microphone")) === "granted") return null;
+  return "Microphone access isn't allowed. Turn on Runningbord under System Settings › Privacy & Security › Microphone, or use App Settings › Permissions.";
+}
 
 // Create the context
 const AppContext = createContext<IContextType | undefined>(undefined);
@@ -492,7 +513,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
   const [systemAudioError, setSystemAudioError] = useState<string | null>(null);
   useEffect(() => {
     if (!drivesAudio()) return;
-    inOrder(async () => {
+    inOrder("system-audio", async () => {
       let error: string | null = null;
       try {
         if (systemAudioDaemonConfig.enabled) {
@@ -529,15 +550,45 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     systemAudioDaemonConfig.enabled &&
     transcriptionConfig.captureMic &&
     transcriptionConfig.engine !== "raw";
+  const [micError, setMicError] = useState<string | null>(null);
+  const [micDevice, setMicDevice] = useState<string | null>(null);
   useEffect(() => {
     if (!drivesAudio()) return;
-    inOrder(() =>
-      (captureMic
-        ? invoke("mic_audio_start", { bufferSeconds: systemAudioDaemonConfig.bufferSeconds })
-        : invoke("mic_audio_stop")
-      ).catch((e) => console.warn("Microphone capture sync failed:", e))
-    );
+    inOrder("mic", async () => {
+      let error: string | null = null;
+      let device: string | null = null;
+      try {
+        if (captureMic) {
+          error = await ensureMicrophoneAllowed();
+          if (!error) {
+            device = await invoke<string>("mic_audio_start", {
+              bufferSeconds: systemAudioDaemonConfig.bufferSeconds,
+            });
+          }
+        } else {
+          await invoke("mic_audio_stop");
+        }
+      } catch (e) {
+        error = String(e);
+      }
+      if (error) console.warn("Microphone capture sync failed:", error);
+      setMicError(error);
+      setMicDevice(device);
+      emit("mic-status", { error, device }).catch(() => {});
+    });
   }, [captureMic, systemAudioDaemonConfig.bufferSeconds]);
+
+  // The dashboard hears about microphone problems from the overlay.
+  useEffect(() => {
+    if (drivesAudio()) return;
+    const unlisten = listen<{ error: string | null; device: string | null }>("mic-status", ({ payload }) => {
+      setMicError(payload.error);
+      setMicDevice(payload.device);
+    });
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, []);
 
   // Live background transcription follows the daemon when the local engine is used.
   const liveTranscription =
@@ -546,7 +597,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     transcriptionConfig.live;
   useEffect(() => {
     if (!drivesAudio()) return;
-    inOrder(() =>
+    inOrder("live-transcription", () =>
       (liveTranscription
         ? invoke("live_transcript_start", {
             modelId: transcriptionConfig.localModel,
@@ -681,6 +732,8 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     systemAudioDaemonConfig,
     setSystemAudioDaemonConfig,
     systemAudioError,
+    micError,
+    micDevice,
     customizable,
     toggleAppIconVisibility,
     toggleAlwaysOnTop,
